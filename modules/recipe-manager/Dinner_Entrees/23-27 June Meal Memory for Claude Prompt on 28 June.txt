@@ -1,0 +1,166 @@
+# Weekly Menu Planning System - Claude Memory Prompt
+
+## 🎯 SYSTEM OVERVIEW
+You are helping with a sophisticated weekly meal planning system that includes structured feedback collection, database storage, and continuous improvement. The user has built a comprehensive system to avoid confusion and improve meal planning over time.
+
+## 📊 DATABASE ARCHITECTURE
+
+### Primary Tables:
+- **`daily_meal_plans`**: Stores all planned meals with dates, recipes, ingredients (JSONB), timing
+- **`meal_feedback`**: NEW structured feedback system to prevent confusion like "slow cooker chicken incident"
+- **`development_notes`**: Project tracking and high-level planning notes
+
+### Key Data Relationships:
+- Each meal in `daily_meal_plans` can have detailed feedback in `meal_feedback`
+- Feedback includes specific ban reasons (recipe_bad vs cooking_method_bad vs ingredient_combo_bad)
+- All ingredients stored as JSONB arrays for shopping list generation
+
+## 🚨 CRITICAL: PREVENT DATA CONFUSION
+
+### What Happened (Learn from This):
+1. **Bad Example**: Previously, feedback said "Friday Slow Cooker Chicken & Rice: Sucked, avoid slow cooker chicken dishes"
+2. **User Correction**: The specific RECIPE was bad, NOT all slow cooker chicken dishes
+3. **Lesson**: Always ask specific clarifying questions to distinguish between:
+   - ❌ Ban this specific recipe
+   - ❌ Ban this cooking method entirely  
+   - ❌ Ban this ingredient combination
+   - ❌ Ban this preparation technique
+
+### Structured Feedback Framework:
+Always use the `meal_feedback` table with these specific fields:
+- **`repeat_status`**: 'never_repeat', 'repeat_exact', 'try_variation', 'seasonal_repeat'
+- **`ban_reason`**: 'recipe_bad', 'cooking_method_bad', 'ingredient_combo_bad', 'preparation_bad'
+- **`improvement_suggestions`**: Constructive alternatives
+
+## 📅 CURRENT MEAL PLANNING DATA
+
+### Week of June 16-20, 2025 (COMPLETED):
+```sql
+-- These meals are in daily_meal_plans table:
+Monday: Pan-Seared Salmon (dinner) + Mediterranean Pasta Salad (lunch)
+Tuesday: Korean Bulgogi (dinner) + Asian Chicken Salad Wrap (lunch)  
+Wednesday: Lemon Herb Penne (dinner)
+Thursday: Honey Garlic Pork (dinner)
+Friday: Slow Cooker Chicken & Rice (dinner) -- SPECIFIC RECIPE WAS BAD
+```
+
+### Week of June 21-27, 2025 (REAL APPROVED MENU):
+```sql
+-- Use this data from the uploaded document:
+Monday 6/21: Mediterranean Chickpea Salad Wrap (lunch) + Simple Pan-Seared Cod with Lemon and Herbs (dinner)
+Tuesday 6/22: Turkey and Avocado Club Sandwich (lunch) + Mediterranean Baked Halibut with Olives and Tomatoes (dinner)
+Wednesday 6/23: Italian Pasta Salad with Salami and Fresh Mozzarella (lunch) + Thai Basil Chicken Stir Fry with Jasmine Rice (dinner)
+Thursday 6/24: Grilled Chicken and Quinoa Bowl (lunch) + Beef and Mushroom Stroganoff over Egg Noodles (dinner)
+Friday 6/25: Caprese Grain Bowl with Quinoa (lunch) + Chimichurri Grilled Steak with Roasted Vegetables (dinner)
+```
+
+## 🔄 FEEDBACK COLLECTION WORKFLOW
+
+### Phase 1: Individual Meal Evaluation
+For each meal, ask these SPECIFIC questions to avoid ambiguity:
+
+#### Recipe Quality Assessment:
+1. "Was this SPECIFIC RECIPE good, or should we find a different recipe for [protein/dish]?"
+2. "Should we ban this exact recipe, or try different recipes for [cooking method + protein]?"
+3. "Was the issue with preparation, ingredients, or the recipe itself?"
+
+#### Portion Analysis:
+1. "Were portions: Too much / Just right / Too little?"
+2. "What specifically should be adjusted: protein, vegetables, starch, sauce?"
+
+#### Taste & Preference:
+1. "Rate taste 1-5: Excellent(5) / Good(4) / Okay(3) / Poor(2) / Terrible(1)"
+2. "Seasoning: Too salty / Too bland / Just right / Too spicy / Other issue?"
+
+#### Future Planning Decisions:
+1. "Should we: Never repeat / Repeat exact recipe / Try recipe variation / Make seasonally?"
+2. "If never repeat, why: Recipe bad / Cooking method bad / Ingredient combo bad / Preparation bad?"
+
+### Phase 2: Database Storage
+Always store feedback in `meal_feedback` table with structured data:
+```sql
+INSERT INTO meal_feedback (meal_plan_id, feedback_date, recipe_rating, taste_rating, 
+    portion_assessment, repeat_status, ban_reason, improvement_suggestions, general_comments)
+```
+
+### Phase 3: Apply Learnings
+- Query never_repeat meals before planning
+- Use portion feedback for serving sizes
+- Apply seasoning lessons to new recipes
+
+## 🛒 SHOPPING STRATEGY
+
+### Current Strategy (from uploaded document):
+1. **Lorton Farmer's Market (Sunday mornings)**: All produce EXCEPT citrus, avocado, mushrooms
+2. **Fort Belvoir Commissary (Sunday afternoons)**: Citrus, avocado, mushrooms, fish, meat, dairy, quality bread
+3. **Food Lion Lorton (minimal use)**: Avoid bread (low quality), only specific fresh items
+
+## 📋 WEEKLY REQUIREMENTS
+
+### Must Include:
+- Monday fish/seafood dinner
+- At least 1 Asian dinner per week  
+- At least 1 pasta dinner per week
+- Brian's lunch variety (wraps, sandwiches, pasta salad, grain bowls)
+
+### Dietary Restrictions:
+- **Avoid**: Hummus, grapefruit, wine/beer, raw carrots, very spicy food
+- **Minimize**: Bananas, mangos, packaged convenience foods
+- **No longer plan**: Snacks (eliminated per user preference)
+
+### Timing Constraints:
+- Lunch prep: 15-30 minutes
+- Dinner prep: 25-40 minutes
+- All lunches must store safely 4-5+ hours
+
+## 🎯 PROTEIN VARIETY TRACKING
+
+### Track Running List:
+- **Fish**: Salmon, Cod, Halibut
+- **Beef**: Korean bulgogi, Sirloin, Ribeye/sirloin steak  
+- **Pork**: Tenderloin
+- **Chicken**: Thighs (stir fry)
+- **Need More**: Lamb, Duck, Turkey, Seafood varieties
+
+## 💾 ALWAYS CHECK DATABASE FIRST
+
+### Before Each Session:
+1. **Query current meal plans**: `SELECT * FROM daily_meal_plans WHERE meal_date >= CURRENT_DATE - 7;`
+2. **Check feedback status**: `SELECT * FROM meal_feedback ORDER BY feedback_date DESC LIMIT 10;`
+3. **Review never_repeat list**: `SELECT recipe_name, ban_reason FROM meal_feedback WHERE repeat_status = 'never_repeat';`
+4. **Load development notes**: `SELECT * FROM development_notes WHERE project_name = 'Weekly Menu Planning System';`
+
+### When Adding New Meals:
+1. **Always insert into `daily_meal_plans`** (NOT development_notes)
+2. **Use proper JSONB format** for ingredients_needed
+3. **Include prep_time_minutes, cook_time_minutes, servings**
+
+## 🚨 CRITICAL REMINDERS
+
+### Never Do:
+- ❌ Store meal plans in development_notes (use daily_meal_plans table)
+- ❌ Make broad bans without specific clarification ("avoid all slow cooker chicken")
+- ❌ Assume reasons for negative feedback (always ask specific questions)
+
+### Always Do:
+- ✅ Use structured feedback collection with specific ban_reason categories
+- ✅ Check database for real meal planning data before making assumptions
+- ✅ Ask clarifying questions to distinguish recipe vs cooking method vs ingredient issues
+- ✅ Store feedback in proper database table with structured data
+
+## 📝 SESSION STRUCTURE
+
+### Weekly Planning Session:
+1. **Load previous week's meals** from daily_meal_plans
+2. **Collect structured feedback** using meal_feedback system
+3. **Plan new week** following requirements and restrictions
+4. **Insert new meals** into daily_meal_plans table
+5. **Generate shopping lists** from ingredients_needed JSONB
+
+### Feedback Session:
+1. **Go through each meal systematically** using structured questions
+2. **Record specific feedback** in meal_feedback table
+3. **Update never_repeat list** with clear ban_reason categories
+4. **Generate reports** for future reference
+
+This prompt ensures continuity, prevents confusion, and maintains the sophisticated meal planning system architecture.

@@ -1,0 +1,73 @@
+{
+  "cli": {
+    "version": ">= 16.10.1",
+    "appVersionSource": "local"
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "ios": {
+        "simulator": false,
+        "distribution": "internal"
+      }
+    },
+    "preview": {
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      },
+      "ios": {
+        "simulator": false,
+        "distribution": "internal"
+      }
+    },
+    "ios-simulator": {
+      "ios": {
+        "simulator": true
+      }
+    },
+    "ios-device": {
+      "ios": {
+        "simulator": false,
+        "distribution": "internal"
+      }
+    },
+    "ios-adhoc": {
+      "ios": {
+        "simulator": false,
+        "distribution": "internal",
+        "enterpriseProvisioning": "adhoc"
+      }
+    },
+    "local-ios": {
+      "ios": {
+        "simulator": false,
+        "distribution": "internal"
+      }
+    },
+    "device-build": {
+      "distribution": "internal",
+      "ios": {
+        "simulator": false,
+        "distribution": "internal"
+      }
+    },
+    "production": {
+      "android": {
+        "buildType": "apk"
+      },
+      "ios": {
+        "distribution": "store"
+      }
+    },
+    "ios-production": {
+      "ios": {
+        "distribution": "internal"
+      }
+    }
+  },
+  "submit": {
+    "production": {}
+  }
+}

@@ -1,0 +1,124 @@
+Here is the final Product Requirements Document (PRD) for your scanner app project. It consolidates and refines content from the draft and aligns with best practices for modular, AI-coordinated systems.
+
+⸻
+
+🧾 Product Requirements Document (PRD)
+
+Project ID: food_scanner
+Version: v1.1
+Owner: Brian Rogers
+Created By: ChatGPT (Finalized based on v1.0 by Claude)
+Last Updated: 2025-07-03
+
+⸻
+
+1. 📌 Objective
+
+Develop a mobile-first Nutrition Scanner app that enables barcode-based food identification and OCR-driven expiration date capture, storing results in Supabase. It will feature intelligent manual review workflows, offline queueing, and integration with Nutritionix. LangChain will orchestrate backend logic and AI agents.
+
+⸻
+
+2. 👥 Target Users
+	•	Primary: Brian Rogers
+	•	Secondary (future scope): Household users, dieticians, home inventory apps
+
+⸻
+
+3. 🧠 Functional Requirements
+	•	Scan food product barcodes
+	•	Fetch product metadata from Nutritionix
+	•	Use OCR to extract expiration dates from packaging
+	•	Store results in Supabase: product_id, expiration_date, ocr_confidence, scan_id
+	•	Allow user review and editing before final save
+	•	Tag each scan (e.g., scan_143)
+	•	Provide retry and OCR skip options
+	•	Filter and search existing scan logs by product or date
+
+⸻
+
+4. 🛡️ Non-Functional Requirements
+	•	API call response time <1500 ms on 4G
+	•	OCR confidence thresholds adjustable by user
+	•	Offline queueing for unsaved scan events
+	•	Versioned, stateless API architecture
+	•	No Personally Identifiable Information (PII) stored
+	•	Claude used once for static document parsing only
+	•	All backend operations modular and portable
+	•	App must function fully in low-connectivity mode (excluding Nutritionix lookups)
+
+⸻
+
+5. 🧱 System Components
+
+Component	Owner	Description
+Supabase DB	ChatGPT Agent	Structured backend for scan metadata, products, OCR logs
+Claude Agent	Claude	Initial PRD/document extractor (used once)
+ChatGPT Agent	ChatGPT	Backend developer: DB schema, API, validators
+Gemini/Perplexity	Validator Agents	External QA for schema, logic, and documentation
+LangChain Server	Localhost	Orchestration layer for memory and agent task routing
+iPhone App	Code Claude	Mobile interface: barcode, OCR, API interaction
+
+
+⸻
+
+6. 🧪 Acceptance Criteria
+	•	✅ Barcode scan matches Nutritionix product with ≥90% confidence
+	•	✅ OCR result is auto-saved or reviewed by user
+	•	✅ Manual edit supported for expiration before saving
+	•	✅ Supabase logs contain full metadata: product_id, expiration_date, confidence, scan_id
+	•	✅ API calls return in under 1.5 seconds
+	•	✅ Skip button functions correctly for OCR fallback
+	•	✅ Schema/API verified by external LLMs
+
+⸻
+
+7. 📄 Deliverables (under projects/food_scanner/v1.1/)
+	•	prd.md – This document
+	•	schema.sql – Supabase table definitions
+	•	api_endpoints.json – REST/RPC interface specs
+	•	frontend_spec.md – Mobile integration and screen flow
+	•	workflow.yaml – LangChain agent/task definitions
+	•	qa_feedback.md – Validator comments and test results
+	•	test_data.json – Sample scan inputs and edge cases
+
+⸻
+
+8. ⚙️ Constraints & Assumptions
+	•	Supabase is the sole database platform
+	•	LangChain server is hosted on a MacBook (localhost)
+	•	Claude will not be reused after PRD generation
+	•	Terminal-based operations executed only by ChatGPT
+	•	iOS-only release for MVP
+	•	OCR must work with low-resolution expiration stamps
+	•	Logging must support scan replay for audit/debug
+
+⸻
+
+9. ✅ Verification Plan
+	•	Gemini: Validate database normalization and API consistency
+	•	Perplexity: Confirm business logic clarity and architecture
+	•	ChatGPT: Run local tests, schema migrations, and code linting
+	•	Manual QA: Run on-device scan test scenarios with OCR fails/success/skips
+
+⸻
+
+10. 📅 Milestones
+
+Milestone	Target Date	Owner
+Final PRD Approved	2025-07-04	Brian
+Backend Schema Completed	2025-07-05	ChatGPT
+Mobile UI API Connected	2025-07-06	Code Claude
+External QA Reviewed	2025-07-07	Gemini Team
+LangChain Workflow Online	2025-07-08	LangChain
+Live Test of Full Scanner	2025-07-09	Brian
+
+
+⸻
+
+Save options:
+Would you like me to save this PRD as:
+	•	prd.md (for version control),
+	•	prd.txt (for Claude parsing),
+	•	or both?
+
+And should I generate the scaffolding folder now with all placeholder files (schema.sql, etc.) based on this PRD?

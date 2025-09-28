@@ -1,0 +1,99 @@
+
+
+## 9 July 2025 – Scanner Project Progress Log
+
+### 🧠 Project Prompt / Memory Scaffolding
+
+This section establishes persistent context for the Scanner Project orchestrator system.
+
+#### ✅ Scope & Architecture
+- The system coordinates multi-step AI workflows for barcode + OCR-based nutrition scanning.
+- Prompt chaining is handled via the `prompt_chaining_map` Supabase table.
+- Prompts are version-controlled in `agent_prompts` and resolved dynamically at runtime.
+- Claude executes AI logic; ChatGPT verifies outputs and manages logs/terminal; Gemini is sandboxed.
+- Supabase is the single source of truth (SSOT).
+- Claude and orchestrator call real APIs (e.g. Nutritionix) based on barcode input.
+- All fallback logic must degrade gracefully with JSON output (never crash).
+
+#### 🧩 Workflow Protocol
+- Phase-based execution:
+  - **Phase 1**: Prompt scaffolding, chain setup
+  - **Phase 2**: Barcode processing + context loading + Nutritionix
+  - **Phase 3**: Save result to DB
+  - **Phase 4**: Metrics + review flags
+- Each phase must pass structured JSON from one step to the next.
+- Claude must return machine-readable JSON, no explanations.
+- If critical data is missing, fallback prompt chain must be triggered (e.g., manual entry).
+
+#### 🛡️ Environment / Keys
+- `.env` contains keys:
+  - `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`
+  - `NUTRITIONIX_APP_ID`, `NUTRITIONIX_API_KEY`
+- Service keys must **never** be used in frontend or mobile.
+
+#### 📏 Operational Rules (from 8 July + earlier logs)
+- All output must be verifiable (no guessing).
+- Supabase tables must have RLS enabled + appropriate read policies.
+- Chaining logic must remain in Supabase — not hardcoded.
+- Logging must capture terminal, Claude, and ChatGPT actions with source attribution.
+- Logs should be appendable and stored in plain text for durability.
+- Use fallback chaining if any required step fails.
+
+---
+
+### ✅ Progress
+- Resolved RLS issue blocking project metadata in Supabase.
+- Successfully retrieved project metadata, project logs, and triggered fallback chaining.
+- Implemented Nutritionix API lookup logic in `scanner_foundation_orchestrator.js`.
+- Verified Phase 2.3 completes with real API call and fallback strategy logic.
+
+### ⚠️ Challenges
+- Supabase returned 0 rows for valid project ID due to missing read access.
+- Role-based access policy (`anon`) prevented metadata fetch until universal read was temporarily granted.
+- Nutritionix API chain was stuck at “pending” due to lack of actual API execution logic.
+
+### 🛠️ Actions Taken
+- Inserted debug RPC in orchestrator to log current Supabase session role.
+- Confirmed missing policy, inserted temporary universal read policy for `projects` table.
+- After successful retrieval, reverted policy to restrict to `authenticated` role.
+- Added conditional logic in orchestrator to perform live Nutritionix API lookup and return structured results.
+
+### 📏 Rules / Protocols
+- All orchestrator logic must fail forward using defined fallback steps.
+- Logs should be recorded in plain text for traceability, with agent outputs captured verbatim.
+- All .env API keys must be separated by environment: `NUTRITIONIX_APP_KEY`, etc.
+- Prompt chaining rules are controlled via `prompt_chaining_map`, not hardcoded conditionals.
+
+The attempt to write to the 9 July Log.txt file failed due to a tool error. Here’s what you can do to lock in the new policy manually:
+
+⸻
+
+🔒 Policy Update – No Forward Progress Without Resolution
+
+As of 9 July 2025, the following rule is now in effect:
+
+“All errors, failures, and ambiguous results must be fixed at the root. No fallback chaining or error bypassing is allowed.”
+	•	All fallback prompts (e.g., Manual Entry, Generic Creation) are now gated.
+	•	Workflow execution will hard-fail on incomplete or partial AI output.
+	•	Claude’s responses must be complete, structured, and valid before chaining.
+	•	This ensures a permanent fix is applied before further development or logging.
+
+⸻
+
+Please paste that at the bottom of the docs/9 July Log.txt file in VS Code.
+
+Once pasted, confirm and I’ll proceed under this policy with zero tolerance for unresolved errors.
+
+---
+
+### 🚫 Policy Reinforcement – No Forward Progress Without Resolution
+
+As of 9 July 2025, this policy is active and supersedes any fallback-first logic:
+
+“All errors, failures, and ambiguous results must be fixed at the root. No fallback chaining or error bypassing is allowed.”
+
+- All fallback prompts (e.g., Manual Entry, Generic Creation) are now gated.
+- Workflow execution must **fail hard** on incomplete or partial AI output.
+- Claude’s responses must be complete, structured, and valid before chaining.
+- If any required data is missing or unclear, execution halts until the issue is resolved.
+- This ensures permanent resolution and prevents downstream corruption or tech debt.

@@ -1,0 +1,163 @@
+# Setup Instructions: Expo Barcode Scanner with Supabase
+
+## Prerequisites
+- Node.js installed on your computer
+- Expo CLI: `npm install -g @expo/cli`
+- Expo Go app on your iPhone (download from App Store)
+
+## Step 1: Create New Expo Project
+
+```bash
+npx create-expo-app ScanStackPro
+cd ScanStackPro
+```
+
+## Step 2: Install Dependencies
+
+```bash
+npx expo install expo-barcode-scanner
+npm install @supabase/supabase-js
+```
+
+## Step 3: Configure Supabase Database
+
+### Create the Database Table
+In your Supabase SQL Editor, run this SQL:
+
+```sql
+-- Create scanned_items table
+CREATE TABLE scanned_items (
+  id BIGSERIAL PRIMARY KEY,
+  barcode_data TEXT NOT NULL,
+  barcode_type TEXT NOT NULL,
+  notes TEXT,
+  scanned_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Enable Row Level Security (optional but recommended)
+ALTER TABLE scanned_items ENABLE ROW LEVEL SECURITY;
+
+-- Create policy to allow all operations (adjust as needed)
+CREATE POLICY "Allow all operations" ON scanned_items
+FOR ALL USING (true);
+```
+
+## Step 4: Add Supabase Credentials
+
+1. Go to your Supabase project dashboard
+2. Navigate to Settings → API
+3. Copy your Project URL and anon (public) key
+4. Replace these lines in App.js:
+
+```javascript
+const SUPABASE_URL = 'https://your-project-id.supabase.co';
+const SUPABASE_ANON_KEY = 'your-anon-key-here';
+```
+
+## Step 5: Replace App.js
+
+Replace the contents of `App.js` with the code provided in the artifact.
+
+## Step 6: Configure app.json
+
+Update your `app.json` to include camera permissions:
+
+```json
+{
+  "expo": {
+    "name": "ScanStackPro",
+    "slug": "scanstack-pro",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSCameraUsageDescription": "This app uses the camera to scan barcodes for inventory management."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#ffffff"
+      },
+      "permissions": ["CAMERA"]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      [
+        "expo-barcode-scanner",
+        {
+          "cameraPermission": "Allow ScanStackPro to access camera for barcode scanning."
+        }
+      ]
+    ]
+  }
+}
+```
+
+## Step 7: Test the App
+
+```bash
+npx expo start
+```
+
+1. Scan the QR code with your iPhone's camera or Expo Go app
+2. The app will open on your phone
+3. Grant camera permissions when prompted
+4. Test scanning barcodes with your iPhone camera
+
+## Features Included
+
+✅ **Camera Access**: Uses iPhone's back camera for scanning  
+✅ **Live Preview**: See what camera sees in real-time  
+✅ **Visual Scanner UI**: Green corner guides for aiming  
+✅ **Multiple Barcode Types**: QR codes, UPC, EAN, Code 128, etc.  
+✅ **Supabase Integration**: Saves scans to your database  
+✅ **Notes**: Add optional notes to each scan  
+✅ **Recent Scans**: View and manage scan history  
+✅ **Delete Function**: Remove unwanted scans  
+
+## Supported Barcode Types
+
+- QR Codes
+- EAN-8, EAN-13
+- UPC-A, UPC-E
+- Code 39, Code 93, Code 128
+- ITF, Codabar
+- PDF417, Aztec, DataMatrix
+
+## Troubleshooting
+
+**Camera not working?**
+- Ensure you granted camera permissions
+- Check that your app.json includes the camera permission plugin
+- Try restarting the Expo development server
+
+**Database errors?**
+- Verify your Supabase URL and key are correct
+- Check that the `scanned_items` table exists
+- Ensure Row Level Security policies allow your operations
+
+**App crashes?**
+- Check the Metro bundler logs for error messages
+- Ensure all dependencies are installed correctly
+
+## Testing Tips
+
+1. **Start with QR codes** - they're easiest to scan
+2. **Good lighting** - scan in well-lit areas
+3. **Steady hands** - hold phone steady when scanning
+4. **Distance** - hold phone 6-12 inches from barcode
+5. **Clean lens** - make sure camera lens is clean
+
+This app is now ready to test the reliability of Expo's barcode scanning on your iPhone!

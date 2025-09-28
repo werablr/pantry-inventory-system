@@ -1,0 +1,498 @@
+// App.js - Complete React Native Expo Barcode Scanner with Supabase Integration
+
+import React, { useState, useEffect } from 'react';
+import { 
+  Text, 
+  View, 
+  StyleSheet, 
+  Button, 
+  Alert, 
+  ScrollView, 
+  TextInput,
+  TouchableOpacity,
+  StatusBar 
+} from 'react-native';
+import { BarCodeScanner } from 'expo-barcode-scanner';
+import { createClient } from '@supabase/supabase-js';
+
+// Replace with your actual Supabase credentials
+const SUPABASE_URL = 'YOUR_SUPABASE_URL_HERE';
+const SUPABASE_ANON_KEY = 'YOUR_SUPABASE_ANON_KEY_HERE';
+
+const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+export default function App() {
+  // State for camera permissions and scanning
+  const [hasPermission, setHasPermission] = useState(null);
+  const [scanned, setScanned] = useState(false);
+  const [scanning, setScanning] = useState(false);
+  
+  // State for scanned data and UI
+  const [scannedData, setScannedData] = useState('');
+  const [barcodeType, setBarcodeType] = useState('');
+  const [notes, setNotes] = useState('');
+  const [recentScans, setRecentScans] = useState([]);
+  const [loading, setLoading] = useState(false);
+
+  // Request camera permissions on component mount
+  useEffect(() => {
+    const getBarCodeScannerPermissions = async () => {
+      const { status } = await BarCodeScanner.requestPermissionsAsync();
+      setHasPermission(status === 'granted');
+    };
+    getBarCodeScannerPermissions();
+    loadRecentScans();
+  }, []);
+
+  // Load recent scans from Supabase
+  const loadRecentScans = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('scanned_items')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(10);
+      
+      if (error) {
+        console.error('Error loading scans:', error);
+      } else {
+        setRecentScans(data || []);
+      }
+    } catch (error) {
+      console.error('Error:', error);
+    }
+  };
+
+  // Handle successful barcode scan
+  const handleBarCodeScanned = ({ type, data }) => {
+    setScanned(true);
+    setScanning(false);
+    setScannedData(data);
+    setBarcodeType(type);
+    
+    Alert.alert(
+      'Barcode Scanned!',
+      `Type: ${type}\nData: ${data}`,
+      [
+        { text: 'Scan Again', onPress: () => setScanned(false) },
+        { text: 'Save to Database', onPress: () => saveToDatabase(type, data) }
+      ]
+    );
+  };
+
+  // Save scanned barcode to Supabase
+  const saveToDatabase = async (type, data) => {
+    setLoading(true);
+    try {
+      const { error } = await supabase
+        .from('scanned_items')
+        .insert([
+          {
+            barcode_data: data,
+            barcode_type: type,
+            notes: notes,
+            scanned_at: new Date().toISOString()
+          }
+        ]);
+
+      if (error) {
+        Alert.alert('Error', `Failed to save: ${error.message}`);
+      } else {
+        Alert.alert('Success', 'Barcode saved to database!');
+        setNotes(''); // Clear notes after saving
+        loadRecentScans(); // Refresh the list
+      }
+    } catch (error) {
+      Alert.alert('Error', `Database error: ${error.message}`);
+    }
+    setLoading(false);
+  };
+
+  // Start scanning
+  const startScanning = () => {
+    setScanning(true);
+    setScanned(false);
+    setScannedData('');
+    setBarcodeType('');
+  };
+
+  // Stop scanning
+  const stopScanning = () => {
+    setScanning(false);
+  };
+
+  // Delete item from database
+  const deleteItem = async (id) => {
+    try {
+      const { error } = await supabase
+        .from('scanned_items')
+        .delete()
+        .eq('id', id);
+
+      if (error) {
+        Alert.alert('Error', `Failed to delete: ${error.message}`);
+      } else {
+        loadRecentScans(); // Refresh the list
+      }
+    } catch (error) {
+      Alert.alert('Error', `Delete error: ${error.message}`);
+    }
+  };
+
+  // Permission states
+  if (hasPermission === null) {
+    return (
+      <View style={styles.container}>
+        <Text>Requesting camera permission...</Text>
+      </View>
+    );
+  }
+
+  if (hasPermission === false) {
+    return (
+      <View style={styles.container}>
+        <Text style={styles.text}>No access to camera</Text>
+        <Button
+          title="Request Permission"
+          onPress={async () => {
+            const { status } = await BarCodeScanner.requestPermissionsAsync();
+            setHasPermission(status === 'granted');
+          }}
+        />
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.container}>
+      <StatusBar barStyle="light-content" />
+      
+      {/* Header */}
+      <View style={styles.header}>
+        <Text style={styles.headerText}>ScanStack Pro</Text>
+        <Text style={styles.subtitle}>Barcode Scanner</Text>
+      </View>
+
+      {scanning ? (
+        // Camera Scanner View
+        <View style={styles.scannerContainer}>
+          <BarCodeScanner
+            onBarCodeScanned={scanned ? undefined : handleBarCodeScanned}
+            style={StyleSheet.absoluteFillObject}
+          />
+          
+          {/* Scanner Overlay */}
+          <View style={styles.overlay}>
+            <View style={styles.scanArea}>
+              <View style={[styles.corner, styles.topLeft]} />
+              <View style={[styles.corner, styles.topRight]} />
+              <View style={[styles.corner, styles.bottomLeft]} />
+              <View style={[styles.corner, styles.bottomRight]} />
+            </View>
+            
+            <Text style={styles.scanText}>
+              Point camera at barcode
+            </Text>
+            
+            <TouchableOpacity style={styles.stopButton} onPress={stopScanning}>
+              <Text style={styles.stopButtonText}>Stop Scanning</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      ) : (
+        // Main UI
+        <ScrollView style={styles.content}>
+          {/* Scanned Data Display */}
+          {scannedData ? (
+            <View style={styles.scanResult}>
+              <Text style={styles.resultTitle}>Last Scanned:</Text>
+              <Text style={styles.resultData}>{scannedData}</Text>
+              <Text style={styles.resultType}>Type: {barcodeType}</Text>
+              
+              {/* Notes Input */}
+              <TextInput
+                style={styles.notesInput}
+                placeholder="Add notes (optional)"
+                value={notes}
+                onChangeText={setNotes}
+                multiline
+              />
+              
+              <View style={styles.buttonRow}>
+                <TouchableOpacity 
+                  style={styles.saveButton}
+                  onPress={() => saveToDatabase(barcodeType, scannedData)}
+                  disabled={loading}
+                >
+                  <Text style={styles.saveButtonText}>
+                    {loading ? 'Saving...' : 'Save to Database'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          ) : null}
+
+          {/* Start Scanning Button */}
+          <TouchableOpacity style={styles.scanButton} onPress={startScanning}>
+            <Text style={styles.scanButtonText}>📱 Start Scanner</Text>
+          </TouchableOpacity>
+
+          {/* Recent Scans */}
+          <View style={styles.recentSection}>
+            <Text style={styles.sectionTitle}>Recent Scans</Text>
+            
+            {recentScans.length === 0 ? (
+              <Text style={styles.emptyText}>No scans yet</Text>
+            ) : (
+              recentScans.map((item) => (
+                <View key={item.id} style={styles.scanItem}>
+                  <View style={styles.scanItemContent}>
+                    <Text style={styles.scanItemData}>{item.barcode_data}</Text>
+                    <Text style={styles.scanItemType}>{item.barcode_type}</Text>
+                    {item.notes ? (
+                      <Text style={styles.scanItemNotes}>{item.notes}</Text>
+                    ) : null}
+                    <Text style={styles.scanItemDate}>
+                      {new Date(item.scanned_at).toLocaleString()}
+                    </Text>
+                  </View>
+                  <TouchableOpacity
+                    style={styles.deleteButton}
+                    onPress={() => {
+                      Alert.alert(
+                        'Delete Item',
+                        'Are you sure you want to delete this scan?',
+                        [
+                          { text: 'Cancel', style: 'cancel' },
+                          { text: 'Delete', onPress: () => deleteItem(item.id) }
+                        ]
+                      );
+                    }}
+                  >
+                    <Text style={styles.deleteButtonText}>🗑</Text>
+                  </TouchableOpacity>
+                </View>
+              ))
+            )}
+          </View>
+        </ScrollView>
+      )}
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#1a1a2e',
+  },
+  header: {
+    backgroundColor: '#16213e',
+    paddingTop: 50,
+    paddingBottom: 20,
+    paddingHorizontal: 20,
+    alignItems: 'center',
+  },
+  headerText: {
+    color: '#fff',
+    fontSize: 24,
+    fontWeight: 'bold',
+  },
+  subtitle: {
+    color: '#0f3460',
+    fontSize: 16,
+    marginTop: 5,
+  },
+  content: {
+    flex: 1,
+    padding: 20,
+  },
+  scannerContainer: {
+    flex: 1,
+  },
+  overlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  scanArea: {
+    width: 250,
+    height: 250,
+    position: 'relative',
+  },
+  corner: {
+    position: 'absolute',
+    width: 30,
+    height: 30,
+    borderColor: '#00ff00',
+    borderWidth: 3,
+  },
+  topLeft: {
+    top: 0,
+    left: 0,
+    borderRightWidth: 0,
+    borderBottomWidth: 0,
+  },
+  topRight: {
+    top: 0,
+    right: 0,
+    borderLeftWidth: 0,
+    borderBottomWidth: 0,
+  },
+  bottomLeft: {
+    bottom: 0,
+    left: 0,
+    borderRightWidth: 0,
+    borderTopWidth: 0,
+  },
+  bottomRight: {
+    bottom: 0,
+    right: 0,
+    borderLeftWidth: 0,
+    borderTopWidth: 0,
+  },
+  scanText: {
+    color: '#fff',
+    fontSize: 18,
+    marginTop: 30,
+    textAlign: 'center',
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    padding: 10,
+    borderRadius: 5,
+  },
+  stopButton: {
+    position: 'absolute',
+    bottom: 100,
+    backgroundColor: '#e53e3e',
+    paddingHorizontal: 30,
+    paddingVertical: 15,
+    borderRadius: 25,
+  },
+  stopButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  scanButton: {
+    backgroundColor: '#0f3460',
+    padding: 20,
+    borderRadius: 10,
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  scanButtonText: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
+  scanResult: {
+    backgroundColor: '#16213e',
+    padding: 20,
+    borderRadius: 10,
+    marginBottom: 20,
+  },
+  resultTitle: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginBottom: 10,
+  },
+  resultData: {
+    color: '#00ff00',
+    fontSize: 18,
+    marginBottom: 5,
+    fontFamily: 'monospace',
+  },
+  resultType: {
+    color: '#ccc',
+    fontSize: 14,
+    marginBottom: 15,
+  },
+  notesInput: {
+    backgroundColor: '#fff',
+    padding: 15,
+    borderRadius: 8,
+    marginBottom: 15,
+    minHeight: 80,
+    textAlignVertical: 'top',
+  },
+  buttonRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+  },
+  saveButton: {
+    backgroundColor: '#38a169',
+    paddingHorizontal: 30,
+    paddingVertical: 12,
+    borderRadius: 8,
+    flex: 1,
+    alignItems: 'center',
+  },
+  saveButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  recentSection: {
+    marginTop: 20,
+  },
+  sectionTitle: {
+    color: '#fff',
+    fontSize: 20,
+    fontWeight: 'bold',
+    marginBottom: 15,
+  },
+  emptyText: {
+    color: '#ccc',
+    textAlign: 'center',
+    fontStyle: 'italic',
+    marginTop: 20,
+  },
+  scanItem: {
+    backgroundColor: '#16213e',
+    padding: 15,
+    borderRadius: 8,
+    marginBottom: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  scanItemContent: {
+    flex: 1,
+  },
+  scanItemData: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginBottom: 5,
+  },
+  scanItemType: {
+    color: '#0f3460',
+    fontSize: 12,
+    marginBottom: 5,
+  },
+  scanItemNotes: {
+    color: '#ccc',
+    fontSize: 14,
+    marginBottom: 5,
+    fontStyle: 'italic',
+  },
+  scanItemDate: {
+    color: '#888',
+    fontSize: 12,
+  },
+  deleteButton: {
+    padding: 10,
+  },
+  deleteButtonText: {
+    fontSize: 18,
+  },
+  text: {
+    color: '#fff',
+    textAlign: 'center',
+    fontSize: 16,
+  },
+});

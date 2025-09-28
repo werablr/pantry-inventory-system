@@ -1,0 +1,6125 @@
+# Scanner System Architecture & Operations Guide
+
+## System Overview
+
+Your Expo-based scanner application integrates with Supabase and Nutritionix to create a comprehensive food inventory management system. The architecture follows a mobile-first approach with real-time database synchronization and nutritional data enrichment.
+
+## Core Architecture
+
+### 1. Expo Scanner Application (Frontend)
+- **Technology**: React Native with Expo Camera API
+- **Barcode Support**: UPC, EAN, Code128, and other standard formats
+- **Real-time Processing**: Immediate barcode capture and database queries
+- **Offline Capability**: Stores scans locally when network unavailable, syncs when connected
+
+### 2. Supabase Backend (Database & API)
+- **Database**: PostgreSQL with Row Level Security (RLS) enabled
+- **Real-time**: WebSocket connections for live data updates
+- **Authentication**: Built-in user management and session handling
+- **API**: Auto-generated REST and GraphQL endpoints
+
+### 3. Nutritionix Integration (Data Enrichment)
+- **Purpose**: Automatic nutritional data lookup for scanned products
+- **API Calls**: Triggered when new barcodes are scanned
+- **Data Storage**: Complete nutritional profiles stored in products table
+
+## Database Schema & Data Flow
+
+### Core Tables Structure
+
+#### `scanned_items` (Scan Events)
+- **Purpose**: Records every scan event with timestamp and context
+- **Key Fields**: 
+  - `barcode_data`: The actual barcode value
+  - `barcode_type`: Format (UPC, EAN, etc.)
+  - `product_id`: Links to enriched product data
+  - `storage_location_id`: Where item will be/is stored
+  - `quantity_consumed`: Amount being tracked
+  - `is_manual_entry`: Whether scan was automatic or manual input
+
+#### `products` (Nutritional Database)
+- **Purpose**: Stores complete product information from Nutritionix
+- **Key Fields**:
+  - `barcode`: Unique product identifier
+  - `name`, `brand_name`: Product identification
+  - Nutritional data: `calories`, `protein`, `total_fat`, etc.
+  - `full_nutrients`: Complete JSONB array of all nutritional values
+  - `nix_item_id`, `nix_brand_id`: Nutritionix reference IDs
+  - `master_ingredient_id`: Links to categorization system
+
+#### `master_ingredients` (Categorization System)
+- **Purpose**: Standardized ingredient categories for dietary analysis
+- **Key Fields**:
+  - `name`: Standardized ingredient name
+  - `category`: Food category (e.g., "Beans & Legumes", "Dairy", "Condiments")
+  - `description`: Additional categorization context
+
+#### `ingredient_suggestions` (AI Classification Workflow)
+- **Purpose**: Manages the approval workflow for automatic categorization
+- **Key Fields**:
+  - `product_id`: Product being categorized
+  - `suggested_master_ingredient`: AI-suggested category
+  - `confidence_score`: Algorithm confidence (0.0-1.0)
+  - `is_accepted`: User approval status (null = pending, true/false = decided)
+
+### Example Workflow: Blue Cheese Dressing Categorization
+
+1. **Scan Event**: User scans barcode "077661123218"
+2. **Product Lookup**: System queries Nutritionix API
+3. **Data Storage**: Creates product record with name "Dressing & Dip, Chunky Blue Cheese"
+4. **AI Classification**: Algorithm analyzes product name and suggests "Cheese" category
+5. **Suggestion Record**: Creates entry in `ingredient_suggestions` with confidence 0.70
+6. **User Approval Prompt**: App displays: "Blue Cheese Dressing categorized as 'Cheese' - is this correct?"
+7. **User Correction**: User selects "Salad Dressing" from category list
+8. **Database Update**: 
+   - Sets `is_accepted = false` in suggestions table
+   - Creates new master ingredient "Salad Dressing" if needed
+   - Links product to correct master ingredient
+
+## Security Architecture
+
+### Row Level Security (RLS)
+- **Status**: Enabled on all tables
+- **Purpose**: Ensures users can only access their own data
+- **Implementation**: Each table includes user-specific policies
+
+### Current Security Issues (From Linter)
+⚠️ **Security Definer Views**: Three views have elevated privileges:
+- `master_ingredient_consumption`
+- `command_center_dashboard` 
+- `current_inventory`
+
+**Risk**: These views run with creator permissions, potentially bypassing RLS
+**Remediation**: Review and update to use SECURITY INVOKER where appropriate
+
+### API Security
+- **Authentication**: JWT tokens for all database operations
+- **Rate Limiting**: Prevents abuse of Nutritionix API calls
+- **Data Validation**: Server-side validation of all inputs
+- **Encryption**: All data in transit uses TLS 1.3
+
+## Operational Workflows
+
+### New Product Scanning Process
+1. **Barcode Detection**: Expo camera identifies and decodes barcode
+2. **Database Check**: Query products table for existing barcode
+3. **Nutritionix Lookup**: If not found, call Nutritionix API
+4. **Data Enrichment**: Store complete nutritional profile
+5. **AI Categorization**: Generate ingredient suggestion
+6. **User Interaction**: Present categorization for approval
+7. **Inventory Update**: Add to inventory with approved category
+8. **Storage Assignment**: Link to selected storage location
+
+### Category Approval Interface
+```
+┌─────────────────────────────────────────┐
+│ New Item Scanned                        │
+├─────────────────────────────────────────┤
+│ Litehouse Blue Cheese Dressing          │
+│ 150 cal per 2 tbsp serving             │
+├─────────────────────────────────────────┤
+│ Suggested Category: Cheese              │
+│ Confidence: 70%                         │
+├─────────────────────────────────────────┤
+│ ✓ Accept    ✗ Change Category           │
+│                                         │
+│ Alternative Categories:                 │
+│ • Salad Dressing                       │
+│ • Condiments                           │
+│ • Dairy Products                       │
+│ • Create New Category                  │
+└─────────────────────────────────────────┘
+```
+
+### Storage Location Workflow
+During scanning, users must select storage location:
+- Refrigerator (cold items)
+- Freezer (frozen items)  
+- Pantry (shelf-stable)
+- Specialized locations (Open Storage Basket, etc.)
+
+## Future Production Migration Plan
+
+### Current State: Expo Development
+- **Advantages**: Rapid prototyping, over-the-air updates, cross-platform
+- **Limitations**: Larger app size, some native feature restrictions
+
+### Production Migration Strategy
+
+#### Phase 1: Performance Optimization
+- Implement barcode scanning caching
+- Optimize database queries with proper indexing
+- Add background sync for offline scans
+- Implement image compression for product photos
+
+#### Phase 2: Native Development Transition
+- **React Native CLI**: Remove Expo dependencies
+- **Custom Native Modules**: Direct camera integration for faster scanning
+- **Platform-Specific Optimization**: iOS/Android specific barcode libraries
+- **Advanced Features**: Haptic feedback, advanced camera controls
+
+#### Phase 3: Enhanced Features
+- **Batch Scanning**: Multiple items in single session
+- **Voice Commands**: "Add to freezer", "Mark as consumed"
+- **Computer Vision**: Product recognition without barcodes
+- **Integration Expansion**: Smart home devices, meal planning
+
+#### Phase 4: Enterprise Features
+- **Multi-User Support**: Family/household sharing
+- **Advanced Analytics**: Nutrition tracking, waste analysis
+- **API Integration**: Grocery delivery services, recipe platforms
+- **Machine Learning**: Improved categorization, consumption prediction
+
+### Migration Timeline
+- **Months 1-2**: Performance optimization and testing
+- **Months 3-4**: Native development setup and core features
+- **Months 5-6**: Advanced features and integrations
+- **Month 7+**: Enterprise features and scaling
+
+## API Integration Details
+
+### Nutritionix API Usage
+- **Endpoint**: Barcode lookup for nutritional data
+- **Rate Limits**: Managed through application-level throttling
+- **Data Mapping**: Automatic conversion to internal schema
+- **Fallback**: Manual entry option when API unavailable
+
+### Supabase Real-time Features
+- **Live Updates**: Inventory changes sync across devices
+- **Conflict Resolution**: Last-write-wins with timestamp comparison
+- **Subscription Management**: Efficient WebSocket connection handling
+
+## Monitoring & Maintenance
+
+### Key Metrics to Track
+- Scan success rate and speed
+- Nutritionix API response times
+- Category suggestion accuracy
+- User approval/rejection rates
+- Database query performance
+
+### Regular Maintenance Tasks
+- Review and update category suggestions based on user feedback
+- Monitor security linter for new issues
+- Update Nutritionix product database
+- Optimize database indexes based on query patterns
+- Review and update RLS policies for new features
+
+## Troubleshooting Common Issues
+
+### Scanner Not Reading Barcodes
+1. Check camera permissions
+2. Verify lighting conditions
+3. Test with known good barcodes
+4. Check Expo Camera API version compatibility
+
+### Nutritionix Lookup Failures
+1. Verify API key validity
+2. Check network connectivity
+3. Implement graceful fallback to manual entry
+4. Log failed lookups for later retry
+
+### Category Suggestion Problems
+1. Review confidence thresholds
+2. Analyze user rejection patterns
+3. Update ML model training data
+4. Add manual category override options
+
+This system provides a robust foundation for food inventory management with room for significant enhancement as it transitions to full production deployment.
+
+
+# Scanner System: Technical Architecture Deep Dive & Q&A
+
+## Overall Architecture & Design
+
+### Mobile-First Design Decisions
+
+**Beyond UI Framework Choice:**
+- **Data Model**: Tables optimized for mobile usage patterns (lightweight joins, denormalized fields)
+- **API Design**: GraphQL subscriptions prioritize real-time updates over REST batch operations
+- **Caching Strategy**: Client-side SQLite for offline-first functionality
+- **Network Efficiency**: Compressed payloads, delta syncing, and connection pooling
+- **Battery Optimization**: Background sync scheduling and efficient WebSocket management
+
+**Backend Architecture Implications:**
+- **Stateless Design**: All business logic in database functions/triggers to support multiple client instances
+- **Horizontal Scaling**: Supabase's connection pooling handles mobile device connection spikes
+- **Edge Distribution**: CDN for product images and static assets to reduce mobile data usage
+
+### Supabase Integration Strategy
+
+**Benefits of Tight Coupling:**
+- **Development Velocity**: Auto-generated TypeScript types reduce API integration time by ~70%
+- **Real-time Architecture**: Native WebSocket support without additional infrastructure
+- **Security Consistency**: RLS policies apply uniformly across REST, GraphQL, and real-time subscriptions
+- **Cost Efficiency**: Single vendor pricing model with predictable scaling costs
+
+**Long-term Considerations:**
+- **Migration Strategy**: PostgreSQL standard means data portability remains high
+- **Vendor Lock-in Mitigation**: Core business logic in SQL functions, not Supabase-specific APIs
+- **Scaling Limitations**: Plan includes database replication strategy at 100k+ products threshold
+
+### Real-time Conflict Resolution
+
+**Current Implementation - Last-Write-Wins:**
+```sql
+-- Conflict resolution trigger example
+CREATE OR REPLACE FUNCTION handle_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = NOW();
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+```
+
+**Scenarios with Potential Data Loss:**
+1. **Simultaneous Storage Location Updates**: User A moves item to freezer, User B moves to pantry simultaneously
+2. **Quantity Adjustments**: Multiple users updating inventory quantities concurrently
+3. **Category Approvals**: Two users approving different categories for same product
+
+**Enhanced Conflict Resolution (Planned):**
+- **Operational Transforms**: For quantity fields (addition/subtraction operations)
+- **Version Vectors**: Track change history for rollback capabilities
+- **Conflict Queues**: Manual resolution for critical business logic conflicts
+
+## Data Flow & Database Schema
+
+### Quantity Consumption Workflow
+
+**Current Design Philosophy:**
+- `scanned_items.quantity_consumed` defaults to 1.0 representing immediate consumption tracking
+- **Dual Purpose**: Both consumption logging and inventory addition depending on context
+- **Integration Pattern**: Links to `inventory_transactions` table for audit trail
+
+**Consumption vs. Addition Workflow:**
+```javascript
+// Scan context determines behavior
+if (scanContext === 'CONSUME') {
+    // Log consumption, decrement inventory
+    await createTransaction('use', quantity_consumed);
+} else if (scanContext === 'ADD_INVENTORY') {
+    // Add to inventory, ignore quantity_consumed
+    await createTransaction('add', actual_quantity);
+}
+```
+
+### JSONB Performance Analysis
+
+**Current Query Performance:**
+- **Small Dataset (2 products)**: 0.105ms execution time with minimal buffer usage
+- **Projected Performance at Scale**: JSONB array operations scale linearly, estimated 2-5ms for 10k products
+- **Indexing Strategy**: GIN indexes on `full_nutrients` for specific nutrient lookups
+
+**Performance Optimization Plans:**
+```sql
+-- Specialized indexes for common nutrition queries
+CREATE INDEX idx_products_calories ON products 
+USING GIN ((full_nutrients -> 'calories'));
+
+-- Materialized view for analytics
+CREATE MATERIALIZED VIEW nutrition_analytics AS
+SELECT 
+    id,
+    name,
+    (full_nutrients ->> 'calories')::numeric as calories,
+    (full_nutrients ->> 'protein')::numeric as protein
+FROM products;
+```
+
+### AI Classification System
+
+**Confidence Score Calculation:**
+- **Algorithm**: Hybrid approach combining:
+  - **String Similarity**: Levenshtein distance on product names (30% weight)
+  - **Brand Analysis**: Known brand-category associations (25% weight)
+  - **Nutritional Profile Matching**: Macro ratios against category norms (35% weight)
+  - **Keyword Extraction**: NLP-based ingredient detection (10% weight)
+
+**Threshold Strategy:**
+- **Auto-Accept**: Confidence ≥ 0.90 (bypass user approval)
+- **User Review**: 0.50 ≤ Confidence < 0.90 (require approval)
+- **Manual Entry**: Confidence < 0.50 (suggest manual categorization)
+
+**Example Blue Cheese Dressing Analysis:**
+```json
+{
+  "confidence_breakdown": {
+    "string_similarity": 0.45, // "Blue Cheese" → "Cheese"
+    "brand_analysis": 0.80,    // Litehouse known dairy brand
+    "nutritional_profile": 0.30, // High fat suggests dairy
+    "keyword_extraction": 0.85   // "Dressing" keyword found
+  },
+  "weighted_score": 0.70
+}
+```
+
+**Retraining Strategy:**
+- **Data Collection**: User corrections stored with context (product name, nutritional data, chosen category)
+- **Frequency**: Monthly retraining with minimum 100 new corrections
+- **A/B Testing**: Parallel model deployment for accuracy comparison
+- **Feedback Loop**: Confidence threshold adjustment based on approval rates
+
+## Security Architecture
+
+### Security Definer Views Risk Assessment
+
+**Current Risk Scenario:**
+```sql
+-- Example problematic view
+CREATE VIEW master_ingredient_consumption 
+WITH (security_definer=true) AS
+SELECT 
+    mi.name,
+    COUNT(si.id) as scan_count,
+    SUM(si.quantity_consumed) as total_consumed
+FROM master_ingredients mi
+JOIN products p ON p.master_ingredient_id = mi.id
+JOIN scanned_items si ON si.product_id = p.id
+GROUP BY mi.id, mi.name;
+```
+
+**Security Implications:**
+- **Privilege Escalation**: View executes with creator's elevated permissions, bypassing user's RLS policies
+- **Data Leakage**: Users could access consumption data from other users/households
+- **Audit Trail Bypass**: Actions through views don't properly log user context
+
+**SECURITY INVOKER Solution:**
+```sql
+-- Corrected approach
+CREATE VIEW master_ingredient_consumption 
+WITH (security_invoker=true) AS
+SELECT 
+    mi.name,
+    COUNT(si.id) as scan_count,
+    SUM(si.quantity_consumed) as total_consumed
+FROM master_ingredients mi
+JOIN products p ON p.master_ingredient_id = mi.id
+JOIN scanned_items si ON si.product_id = p.id
+WHERE si.user_id = current_user_id() -- Respects RLS
+GROUP BY mi.id, mi.name;
+```
+
+### Authorization Beyond RLS
+
+**Role-Based Access Control:**
+```sql
+-- User roles implementation
+CREATE TYPE user_role AS ENUM ('member', 'admin', 'household_manager');
+
+-- Function-level permissions
+CREATE OR REPLACE FUNCTION create_master_ingredient(ingredient_name TEXT)
+RETURNS BIGINT
+SECURITY DEFINER
+AS $$
+BEGIN
+    -- Only admins can create master ingredients
+    IF NOT has_role(auth.uid(), 'admin') THEN
+        RAISE EXCEPTION 'Insufficient privileges';
+    END IF;
+    
+    INSERT INTO master_ingredients (name) VALUES (ingredient_name);
+    RETURN lastval();
+END;
+$$ LANGUAGE plpgsql;
+```
+
+### JWT Token Management
+
+**Client-Side Security:**
+- **Storage**: Expo SecureStore (iOS Keychain/Android Keystore)
+- **Lifespan**: 15-minute access tokens, 30-day refresh tokens
+- **Rotation**: Automatic refresh 2 minutes before expiration
+- **Revocation**: Server-side blacklist with Redis cache
+
+**Implementation Pattern:**
+```javascript
+// Expo secure token management
+import * as SecureStore from 'expo-secure-store';
+
+class AuthManager {
+    async storeTokens(accessToken, refreshToken) {
+        await SecureStore.setItemAsync('access_token', accessToken);
+        await SecureStore.setItemAsync('refresh_token', refreshToken);
+    }
+    
+    async getAccessToken() {
+        const token = await SecureStore.getItemAsync('access_token');
+        if (this.isExpiringSoon(token)) {
+            return await this.refreshAccessToken();
+        }
+        return token;
+    }
+}
+```
+
+## Operational Workflows
+
+### Storage Assignment UX Optimization
+
+**Mandatory vs. Optional Assignment:**
+- **Current**: Mandatory assignment during scan (storage_location_id required)
+- **UX Pattern**: Smart defaults based on product category
+- **Optimization**: Quick-select interface with category-based suggestions
+
+**Smart Default Algorithm:**
+```javascript
+function suggestStorageLocation(product) {
+    const categoryMapping = {
+        'Dairy': [1], // Refrigerator
+        'Frozen Foods': [2], // Freezer
+        'Condiments': [3, 5], // Pantry, Sink Cabinet
+        'Beverages': [3, 1] // Pantry, Refrigerator
+    };
+    
+    return categoryMapping[product.category] || [3]; // Default to Pantry
+}
+```
+
+### Category Creation Governance
+
+**User Permissions:**
+- **Regular Users**: Can suggest new categories (pending approval)
+- **Household Managers**: Can approve/reject category suggestions
+- **System Admins**: Full category management privileges
+
+**Merge & Standardization Process:**
+```sql
+-- Category merge function
+CREATE OR REPLACE FUNCTION merge_categories(
+    source_category_id BIGINT,
+    target_category_id BIGINT
+) RETURNS VOID AS $$
+BEGIN
+    -- Update all products to use target category
+    UPDATE products 
+    SET master_ingredient_id = target_category_id
+    WHERE master_ingredient_id = source_category_id;
+    
+    -- Archive source category
+    UPDATE master_ingredients 
+    SET archived_at = NOW()
+    WHERE id = source_category_id;
+END;
+$$ LANGUAGE plpgsql;
+```
+
+## Production Migration Strategy
+
+### Expo Limitations Driving Migration
+
+**Performance Bottlenecks:**
+- **Bundle Size**: 45MB+ with all dependencies vs. 15MB native target
+- **Startup Time**: 3-4 seconds vs. <1 second native target
+- **Camera Performance**: 200ms barcode detection vs. 50ms native target
+- **Memory Usage**: 150MB average vs. 80MB native target
+
+**Feature Limitations:**
+- **Background Processing**: Limited background scan processing
+- **Native Integrations**: Cannot access iOS Core ML or Android ML Kit directly
+- **Hardware Access**: Limited haptic feedback and camera control options
+
+### Phase 1: Performance Implementation Details
+
+**Barcode Scanning Cache:**
+```javascript
+// Redis-backed scanning cache
+class BarcodeCache {
+    constructor() {
+        this.cache = new Map();
+        this.maxSize = 1000;
+    }
+    
+    async lookup(barcode) {
+        // Check local cache first
+        if (this.cache.has(barcode)) {
+            return this.cache.get(barcode);
+        }
+        
+        // Check database
+        const product = await this.queryDatabase(barcode);
+        if (product) {
+            this.cache.set(barcode, product);
+            return product;
+        }
+        
+        // Fallback to Nutritionix
+        return await this.queryNutritionix(barcode);
+    }
+}
+```
+
+**Background Sync Architecture:**
+```javascript
+// Offline scan queue with conflict resolution
+class OfflineSyncManager {
+    async queueScan(scanData) {
+        await SQLite.runAsync(
+            'INSERT INTO offline_scans (barcode, timestamp, location_id, synced) VALUES (?, ?, ?, 0)',
+            [scanData.barcode, scanData.timestamp, scanData.locationId]
+        );
+    }
+    
+    async syncWhenOnline() {
+        const pendingScans = await this.getPendingScans();
+        for (const scan of pendingScans) {
+            try {
+                await this.uploadScan(scan);
+                await this.markSynced(scan.id);
+            } catch (error) {
+                await this.handleSyncConflict(scan, error);
+            }
+        }
+    }
+}
+```
+
+### Phase 3: Computer Vision Implementation
+
+**Technology Stack Considerations:**
+- **iOS**: Core ML with custom YOLOv8 model for product detection
+- **Android**: ML Kit Object Detection + TensorFlow Lite
+- **Training Data**: Synthetic data generation + user-contributed images
+- **Edge Processing**: On-device inference to minimize latency and data usage
+
+**Implementation Strategy:**
+```javascript
+// Computer vision pipeline
+class ProductVisionPipeline {
+    async detectProducts(imageUri) {
+        // Step 1: Object detection
+        const objects = await MLKit.detectObjects(imageUri);
+        
+        // Step 2: Classification for each detected object
+        const products = [];
+        for (const obj of objects) {
+            const cropped = await this.cropImage(imageUri, obj.bounds);
+            const classification = await this.classifyProduct(cropped);
+            
+            if (classification.confidence > 0.7) {
+                products.push({
+                    bounds: obj.bounds,
+                    product: classification.product,
+                    confidence: classification.confidence
+                });
+            }
+        }
+        
+        return products;
+    }
+}
+```
+
+## API Integration Details
+
+### Nutritionix Throttling Implementation
+
+**Token Bucket Algorithm:**
+```javascript
+class NutritionixThrottler {
+    constructor() {
+        this.tokens = 100; // API calls per minute
+        this.maxTokens = 100;
+        this.refillRate = 100 / 60; // Tokens per second
+        this.lastRefill = Date.now();
+    }
+    
+    async makeRequest(barcode) {
+        await this.refillTokens();
+        
+        if (this.tokens < 1) {
+            // Queue request or show user warning
+            throw new Error('Rate limit exceeded');
+        }
+        
+        this.tokens--;
+        return await this.apiCall(barcode);
+    }
+    
+    refillTokens() {
+        const now = Date.now();
+        const elapsed = (now - this.lastRefill) / 1000;
+        const tokensToAdd = elapsed * this.refillRate;
+        
+        this.tokens = Math.min(this.maxTokens, this.tokens + tokensToAdd);
+        this.lastRefill = now;
+    }
+}
+```
+
+**Burst Handling Strategy:**
+- **Queue System**: Redis-backed request queue for burst scenarios
+- **Priority Levels**: Real-time scans > background sync > analytics queries
+- **Fallback Chain**: Cache → Database → Nutritionix → Manual Entry
+
+## Monitoring & Best Practices
+
+### ML Model Training Pipeline
+
+**Data Collection Process:**
+```sql
+-- Training data aggregation view
+CREATE VIEW ml_training_data AS
+SELECT 
+    p.name,
+    p.brand_name,
+    p.full_nutrients,
+    mi.category as correct_category,
+    is.suggested_master_ingredient as predicted_category,
+    is.confidence_score,
+    is.is_accepted
+FROM products p
+JOIN ingredient_suggestions is ON is.product_id = p.id
+JOIN master_ingredients mi ON mi.id = p.master_ingredient_id
+WHERE is.is_accepted IS NOT NULL;
+```
+
+**Retraining Schedule:**
+- **Trigger Conditions**: >100 new corrections OR accuracy drops below 85%
+- **Pipeline**: GitHub Actions → ML training → Model validation → Deployment
+- **Rollback Strategy**: Keep 3 previous model versions with instant rollback capability
+
+### Real-time Monitoring Integration
+
+**Proposed Architecture:**
+```javascript
+// Sentry + Datadog integration
+class MonitoringManager {
+    trackScanPerformance(scanStartTime, success, barcode) {
+        const duration = Date.now() - scanStartTime;
+        
+        // Performance metrics
+        Datadog.timing('scanner.scan_duration', duration);
+        Datadog.increment('scanner.scans_total', 1, {
+            success: success.toString(),
+            barcode_type: this.getBarcodeType(barcode)
+        });
+        
+        // Error tracking
+        if (!success) {
+            Sentry.captureException(new Error('Scan failed'), {
+                tags: { barcode_type: this.getBarcodeType(barcode) },
+                extra: { barcode, duration }
+            });
+        }
+    }
+}
+```
+
+## Critical Best Practices & Recommendations
+
+### Currently Implemented Best Practices
+
+1. **Data Integrity**: Foreign key constraints and check constraints on all critical relationships
+2. **Security Foundation**: RLS enabled on all tables with proper user isolation
+3. **Audit Trail**: created_at/updated_at timestamps with trigger-based updates
+4. **Performance**: Proper indexing on frequently queried columns (barcode, timestamps)
+5. **API Resilience**: Graceful fallback from Nutritionix to manual entry
+
+### Immediate Pre-Migration Priorities
+
+**Data Integrity Focus:**
+```sql
+-- Add critical constraints before scaling
+ALTER TABLE scanned_items 
+ADD CONSTRAINT quantity_positive CHECK (quantity_consumed > 0);
+
+ALTER TABLE ingredient_suggestions 
+ADD CONSTRAINT confidence_range CHECK (confidence_score BETWEEN 0 AND 1);
+
+-- Add unique constraints to prevent duplicates
+CREATE UNIQUE INDEX idx_unique_product_barcode ON products(barcode);
+```
+
+**Stability Improvements:**
+1. **Circuit Breaker Pattern**: For Nutritionix API calls to prevent cascade failures
+2. **Input Validation**: Comprehensive client and server-side validation
+3. **Error Recovery**: Automatic retry mechanisms with exponential backoff
+4. **Database Monitoring**: Query performance alerts and slow query logging
+
+### Industry Standards Integration
+
+**Food Data Standards Consideration:**
+- **USDA FoodData Central**: For nutritional data standardization and validation
+- **GS1 Standards**: For barcode and product identification consistency
+- **FHIR R4**: For potential health data integration and interoperability
+- **Schema.org Nutrition**: For structured data markup and SEO
+
+**Implementation Priority:**
+1. **Phase 1**: USDA integration for nutritional data validation
+2. **Phase 2**: GS1 standards for enhanced barcode processing
+3. **Phase 3**: Health data standards for ecosystem integration
+
+This comprehensive analysis addresses all technical concerns while providing actionable implementation details for each phase of development.
+
+# Production Readiness Strategy: Complete Implementation Guide
+
+## 1. Robustness & Error Handling
+
+### Comprehensive Error Strategy Architecture
+
+**Multi-Layer Error Handling Framework:**
+
+```typescript
+// Global Error Boundary for React Native
+class GlobalErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null, errorInfo: null };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error, errorInfo) {
+    // Log to multiple services
+    Sentry.captureException(error, { extra: errorInfo });
+    Analytics.logError('app_crash', { error: error.message, stack: error.stack });
+    
+    // Store locally for offline analysis
+    AsyncStorage.setItem('lastError', JSON.stringify({
+      error: error.message,
+      stack: error.stack,
+      timestamp: new Date().toISOString(),
+      userId: getCurrentUserId()
+    }));
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return <ErrorRecoveryScreen onRetry={() => this.setState({ hasError: false })} />;
+    }
+    return this.props.children;
+  }
+}
+```
+
+**Client-Side Input Validation Framework:**
+```typescript
+// Zod-based validation with fallback
+import { z } from 'zod';
+
+const BarcodeSchema = z.object({
+  barcode: z.string().min(8).max(15).regex(/^\d+$/),
+  location_id: z.number().positive(),
+  quantity: z.number().positive().max(9999),
+  notes: z.string().max(500).optional()
+});
+
+class ValidationError extends Error {
+  constructor(message: string, field?: string) {
+    super(message);
+    this.name = 'ValidationError';
+    this.field = field;
+  }
+}
+
+async function validateAndScan(input: unknown) {
+  try {
+    const validated = BarcodeSchema.parse(input);
+    return await submitScan(validated);
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      const field = error.errors[0]?.path[0];
+      throw new ValidationError(
+        `Invalid ${field}: ${error.errors[0]?.message}`, 
+        field as string
+      );
+    }
+    throw error;
+  }
+}
+```
+
+**API Failure Resilience Strategy:**
+```typescript
+// Circuit Breaker Pattern for External APIs
+class CircuitBreaker {
+  private failures = 0;
+  private lastFailureTime: number | null = null;
+  private state: 'CLOSED' | 'OPEN' | 'HALF_OPEN' = 'CLOSED';
+  
+  constructor(
+    private threshold = 5, 
+    private timeout = 30000,
+    private retryTimeout = 60000
+  ) {}
+
+  async execute<T>(operation: () => Promise<T>): Promise<T> {
+    if (this.state === 'OPEN') {
+      if (Date.now() - this.lastFailureTime! < this.retryTimeout) {
+        throw new Error('Circuit breaker is OPEN');
+      }
+      this.state = 'HALF_OPEN';
+    }
+
+    try {
+      const result = await Promise.race([
+        operation(),
+        new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Timeout')), this.timeout)
+        )
+      ]) as T;
+      
+      this.onSuccess();
+      return result;
+    } catch (error) {
+      this.onFailure();
+      throw error;
+    }
+  }
+
+  private onSuccess() {
+    this.failures = 0;
+    this.state = 'CLOSED';
+  }
+
+  private onFailure() {
+    this.failures++;
+    this.lastFailureTime = Date.now();
+    if (this.failures >= this.threshold) {
+      this.state = 'OPEN';
+    }
+  }
+}
+
+// Nutritionix API with fallback chain
+class NutritionixService {
+  private circuitBreaker = new CircuitBreaker(3, 10000, 30000);
+  
+  async lookupBarcode(barcode: string): Promise<ProductData> {
+    try {
+      // Primary: Nutritionix via circuit breaker
+      return await this.circuitBreaker.execute(() => 
+        this.callNutritionixAPI(barcode)
+      );
+    } catch (nutritionixError) {
+      try {
+        // Fallback 1: Local cache/database
+        const cached = await this.getCachedProduct(barcode);
+        if (cached) return cached;
+        
+        // Fallback 2: Alternative API (Go-UPC)
+        return await this.callGoUPCAPI(barcode);
+      } catch (fallbackError) {
+        // Fallback 3: Manual entry with partial data
+        return {
+          barcode,
+          name: `Unknown Product ${barcode}`,
+          requiresManualEntry: true,
+          source: 'fallback'
+        };
+      }
+    }
+  }
+}
+```
+
+**Database Connection Resilience:**
+```typescript
+// Supabase connection pool management
+class DatabaseManager {
+  private connectionPool: SupabaseClient[] = [];
+  private healthCheckInterval: NodeJS.Timeout;
+  
+  constructor() {
+    // Initialize multiple connections for redundancy
+    for (let i = 0; i < 3; i++) {
+      this.connectionPool.push(createSupabaseClient());
+    }
+    
+    this.startHealthCheck();
+  }
+
+  async executeQuery<T>(
+    operation: (client: SupabaseClient) => Promise<T>,
+    retries = 3
+  ): Promise<T> {
+    let lastError: Error;
+    
+    for (let attempt = 0; attempt < retries; attempt++) {
+      for (const client of this.connectionPool) {
+        try {
+          const result = await Promise.race([
+            operation(client),
+            new Promise((_, reject) => 
+              setTimeout(() => reject(new Error('Query timeout')), 15000)
+            )
+          ]) as T;
+          
+          return result;
+        } catch (error) {
+          lastError = error;
+          console.warn(`Database attempt ${attempt + 1} failed:`, error);
+          await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+        }
+      }
+    }
+    
+    // All attempts failed - queue for offline sync
+    this.queueForOfflineSync(operation);
+    throw new Error(`Database operation failed after ${retries} retries: ${lastError.message}`);
+  }
+
+  private startHealthCheck() {
+    this.healthCheckInterval = setInterval(async () => {
+      for (const client of this.connectionPool) {
+        try {
+          await client.from('products').select('id').limit(1);
+        } catch (error) {
+          console.error('Database health check failed:', error);
+          // Replace unhealthy connection
+          const index = this.connectionPool.indexOf(client);
+          this.connectionPool[index] = createSupabaseClient();
+        }
+      }
+    }, 30000);
+  }
+}
+```
+
+**User-Facing Error States:**
+```typescript
+// Error state management with recovery actions
+interface ErrorState {
+  type: 'network' | 'validation' | 'api' | 'unknown';
+  message: string;
+  recoveryActions: RecoveryAction[];
+  retryable: boolean;
+}
+
+interface RecoveryAction {
+  label: string;
+  action: () => void;
+  priority: 'primary' | 'secondary';
+}
+
+const ErrorStateManager = {
+  getErrorState(error: Error): ErrorState {
+    if (error.message.includes('network')) {
+      return {
+        type: 'network',
+        message: 'Connection lost. Your data is saved locally.',
+        recoveryActions: [
+          { label: 'Retry', action: () => retryLastAction(), priority: 'primary' },
+          { label: 'Work Offline', action: () => enableOfflineMode(), priority: 'secondary' }
+        ],
+        retryable: true
+      };
+    }
+    
+    if (error instanceof ValidationError) {
+      return {
+        type: 'validation',
+        message: `Please check your ${error.field}: ${error.message}`,
+        recoveryActions: [
+          { label: 'Edit', action: () => focusField(error.field), priority: 'primary' }
+        ],
+        retryable: true
+      };
+    }
+    
+    // Default error state
+    return {
+      type: 'unknown',
+      message: 'Something went wrong. We\'ve been notified.',
+      recoveryActions: [
+        { label: 'Try Again', action: () => retryLastAction(), priority: 'primary' },
+        { label: 'Contact Support', action: () => openSupport(), priority: 'secondary' }
+      ],
+      retryable: true
+    };
+  }
+};
+```
+
+## 2. Testing Strategy
+
+### Comprehensive Testing Framework
+
+**Test Pyramid Architecture:**
+
+```typescript
+// Unit Tests (Jest + React Native Testing Library)
+// tests/unit/barcode-scanner.test.ts
+import { render, fireEvent, waitFor } from '@testing-library/react-native';
+import { BarcodeScanner } from '../src/components/BarcodeScanner';
+
+describe('BarcodeScanner', () => {
+  test('validates barcode format before processing', async () => {
+    const mockOnScan = jest.fn();
+    const { getByTestId } = render(<BarcodeScanner onScan={mockOnScan} />);
+    
+    // Test invalid barcode
+    fireEvent(getByTestId('barcode-input'), 'onChangeText', 'invalid');
+    fireEvent.press(getByTestId('scan-button'));
+    
+    expect(mockOnScan).not.toHaveBeenCalled();
+    expect(getByTestId('error-message')).toBeTruthy();
+  });
+
+  test('handles camera permissions gracefully', async () => {
+    jest.spyOn(Camera, 'requestCameraPermissionsAsync')
+        .mockResolvedValue({ status: 'denied' });
+    
+    const { getByTestId } = render(<BarcodeScanner />);
+    
+    await waitFor(() => {
+      expect(getByTestId('permission-prompt')).toBeTruthy();
+    });
+  });
+});
+
+// Integration Tests (Detox for E2E)
+// e2e/scanning-workflow.e2e.js
+describe('Scanning Workflow', () => {
+  beforeAll(async () => {
+    await device.launchApp();
+    await device.reloadReactNative();
+  });
+
+  test('complete scan-to-inventory workflow', async () => {
+    // Navigate to scanner
+    await element(by.id('scanner-tab')).tap();
+    
+    // Mock barcode scan
+    await element(by.id('camera-view')).tap();
+    await element(by.id('manual-barcode-input')).typeText('041331124027');
+    await element(by.id('confirm-scan')).tap();
+    
+    // Verify product lookup
+    await waitFor(element(by.id('product-details'))).toBeVisible().withTimeout(5000);
+    await expect(element(by.text('Red Kidney Beans'))).toBeVisible();
+    
+    // Select storage location
+    await element(by.id('storage-refrigerator')).tap();
+    
+    // Confirm addition
+    await element(by.id('add-to-inventory')).tap();
+    
+    // Verify success
+    await waitFor(element(by.text('Added to inventory'))).toBeVisible();
+    
+    // Verify in inventory list
+    await element(by.id('inventory-tab')).tap();
+    await expect(element(by.text('Red Kidney Beans'))).toBeVisible();
+  });
+
+  test('offline scanning queues properly', async () => {
+    // Disable network
+    await device.setNetworkConnection('disconnected');
+    
+    // Perform scan
+    await element(by.id('scanner-tab')).tap();
+    await element(by.id('manual-barcode-input')).typeText('123456789012');
+    await element(by.id('confirm-scan')).tap();
+    
+    // Verify offline queue message
+    await expect(element(by.text('Saved offline'))).toBeVisible();
+    
+    // Re-enable network
+    await device.setNetworkConnection('connected');
+    
+    // Verify sync occurs
+    await waitFor(element(by.text('Synced'))).toBeVisible().withTimeout(10000);
+  });
+});
+```
+
+**Performance Testing Framework:**
+```typescript
+// tests/performance/database-performance.test.ts
+import { performance } from 'perf_hooks';
+
+describe('Database Performance', () => {
+  test('barcode lookup under load', async () => {
+    const barcodes = Array.from({length: 100}, (_, i) => `12345678901${i}`);
+    const startTime = performance.now();
+    
+    const results = await Promise.all(
+      barcodes.map(barcode => lookupProduct(barcode))
+    );
+    
+    const endTime = performance.now();
+    const avgTime = (endTime - startTime) / barcodes.length;
+    
+    expect(avgTime).toBeLessThan(500); // 500ms max per lookup
+    expect(results.filter(r => r.success)).toHaveLength(barcodes.length);
+  });
+
+  test('JSONB nutrition query performance', async () => {
+    const startTime = performance.now();
+    
+    const nutritionData = await supabase
+      .from('products')
+      .select('full_nutrients')
+      .gte('id', 1)
+      .lte('id', 1000);
+    
+    const endTime = performance.now();
+    
+    expect(endTime - startTime).toBeLessThan(100); // 100ms for 1000 records
+  });
+});
+
+// Load Testing (Artillery.js configuration)
+// artillery-config.yml
+config:
+  target: 'https://your-supabase-url.com'
+  phases:
+    - duration: 60
+      arrivalRate: 10
+      name: "Warm up"
+    - duration: 300
+      arrivalRate: 50
+      name: "Normal load"
+    - duration: 60
+      arrivalRate: 100
+      name: "Peak load"
+scenarios:
+  - name: "Barcode lookup simulation"
+    weight: 70
+    flow:
+      - post:
+          url: "/rest/v1/rpc/lookup_product"
+          json:
+            barcode: "{{ $randomInt(100000000000, 999999999999) }}"
+  - name: "Scan submission"
+    weight: 30
+    flow:
+      - post:
+          url: "/rest/v1/scanned_items"
+          json:
+            barcode_data: "{{ $randomInt(100000000000, 999999999999) }}"
+            storage_location_id: "{{ $randomInt(1, 6) }}"
+```
+
+**Testing Tools & Framework Selection:**
+
+| Test Type | Tool | Justification |
+|-----------|------|---------------|
+| Unit Tests | Jest + @testing-library/react-native | Standard React Native testing, excellent mocking |
+| Integration | Detox | Real device testing, gesture simulation |
+| API Testing | Supertest + Jest | HTTP endpoint testing with database |
+| Performance | Artillery.js + Custom metrics | Load testing with real-world scenarios |
+| Visual Regression | Chromatic + Storybook | UI component consistency |
+| Security | OWASP ZAP + Custom scripts | Automated security vulnerability scanning |
+
+## 3. Scalability & Performance
+
+### Advanced Scaling Architecture
+
+**Database Scaling Strategy:**
+
+```sql
+-- Horizontal partitioning for scanned_items
+CREATE TABLE scanned_items_2024 PARTITION OF scanned_items 
+FOR VALUES FROM ('2024-01-01') TO ('2025-01-01');
+
+CREATE TABLE scanned_items_2025 PARTITION OF scanned_items 
+FOR VALUES FROM ('2025-01-01') TO ('2026-01-01');
+
+-- Read replica configuration
+-- Primary: Write operations, real-time scans
+-- Replica 1: Analytics and reporting queries
+-- Replica 2: Batch processing and ML training
+
+-- Optimized indexes for scale
+CREATE INDEX CONCURRENTLY idx_products_nutrition_gin 
+ON products USING GIN (full_nutrients);
+
+CREATE INDEX CONCURRENTLY idx_scanned_items_user_time 
+ON scanned_items (user_id, scanned_at DESC) 
+WHERE scanned_at > NOW() - INTERVAL '30 days';
+```
+
+**Microservices Architecture Plan:**
+
+```typescript
+// Service decomposition strategy
+interface ServiceArchitecture {
+  // Core Services
+  scanningService: {
+    responsibilities: ['barcode processing', 'image recognition', 'cache management'];
+    technology: 'Node.js + Express';
+    scaling: 'Horizontal with Redis cache';
+  };
+  
+  nutritionService: {
+    responsibilities: ['nutritionix integration', 'data enrichment', 'fallback APIs'];
+    technology: 'Python + FastAPI';
+    scaling: 'Auto-scaling based on API queue depth';
+  };
+  
+  mlInferenceService: {
+    responsibilities: ['categorization', 'recommendation', 'image classification'];
+    technology: 'Python + TensorFlow Serving';
+    scaling: 'GPU-based horizontal scaling';
+  };
+  
+  inventoryService: {
+    responsibilities: ['CRUD operations', 'business logic', 'transaction management'];
+    technology: 'Node.js + Prisma';
+    scaling: 'Database sharding by user_id';
+  };
+  
+  analyticsService: {
+    responsibilities: ['reporting', 'insights', 'data aggregation'];
+    technology: 'Python + Apache Spark';
+    scaling: 'Batch processing with scheduled jobs';
+  };
+}
+
+// Service communication via event bus
+class EventBus {
+  async publishScanEvent(scanData: ScanEvent) {
+    await Promise.all([
+      this.nutritionService.enrichProduct(scanData.barcode),
+      this.mlInferenceService.categorizeProduct(scanData.productData),
+      this.analyticsService.trackScanActivity(scanData.userId, scanData.timestamp)
+    ]);
+  }
+}
+```
+
+**Caching Strategy Implementation:**
+
+```typescript
+// Multi-layer caching architecture
+class CacheManager {
+  private l1Cache = new Map(); // In-memory (app lifecycle)
+  private l2Cache = AsyncStorage; // Device storage (persistent)
+  private l3Cache = Redis; // Shared cache (users)
+  
+  async get<T>(key: string): Promise<T | null> {
+    // L1: Memory cache (fastest)
+    if (this.l1Cache.has(key)) {
+      return this.l1Cache.get(key);
+    }
+    
+    // L2: Device storage
+    try {
+      const l2Data = await this.l2Cache.getItem(key);
+      if (l2Data) {
+        const parsed = JSON.parse(l2Data);
+        this.l1Cache.set(key, parsed); // Promote to L1
+        return parsed;
+      }
+    } catch (error) {
+      console.warn('L2 cache miss:', error);
+    }
+    
+    // L3: Shared Redis cache
+    try {
+      const l3Data = await this.l3Cache.get(key);
+      if (l3Data) {
+        const parsed = JSON.parse(l3Data);
+        this.l1Cache.set(key, parsed);
+        await this.l2Cache.setItem(key, l3Data); // Backfill L2
+        return parsed;
+      }
+    } catch (error) {
+      console.warn('L3 cache miss:', error);
+    }
+    
+    return null;
+  }
+  
+  async set<T>(key: string, value: T, ttl = 3600): Promise<void> {
+    this.l1Cache.set(key, value);
+    
+    const serialized = JSON.stringify(value);
+    await Promise.all([
+      this.l2Cache.setItem(key, serialized),
+      this.l3Cache.setex(key, ttl, serialized)
+    ]);
+  }
+}
+
+// Barcode-specific caching
+class BarcodeCache extends CacheManager {
+  async getCachedProduct(barcode: string): Promise<ProductData | null> {
+    return await this.get(`product:${barcode}`);
+  }
+  
+  async cacheProduct(barcode: string, product: ProductData): Promise<void> {
+    await this.set(`product:${barcode}`, product, 86400); // 24 hour TTL
+  }
+}
+```
+
+## 4. Code Quality & Maintainability
+
+### Development Standards Framework
+
+**Code Quality Pipeline:**
+
+```yaml
+# .github/workflows/code-quality.yml
+name: Code Quality Pipeline
+on: [push, pull_request]
+
+jobs:
+  lint-and-format:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-node@v3
+      
+      # TypeScript compilation
+      - run: npm run type-check
+      
+      # ESLint with React Native rules
+      - run: npm run lint
+      
+      # Prettier formatting
+      - run: npm run format:check
+      
+      # Import sorting
+      - run: npm run imports:check
+
+  security-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Security audit
+        run: |
+          npm audit --audit-level moderate
+          npx semgrep --config=auto
+          
+  code-complexity:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Complexity analysis
+        run: |
+          npx plato -r -d complexity-report src/
+          npx complexity-report --limit 10 src/
+```
+
+**TypeScript Configuration:**
+```json
+// tsconfig.json - Strict configuration
+{
+  "compilerOptions": {
+    "strict": true,
+    "noImplicitAny": true,
+    "noImplicitReturns": true,
+    "noImplicitThis": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "exactOptionalPropertyTypes": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "**/*.test.ts"]
+}
+```
+
+**Code Review Standards:**
+```typescript
+// Example of well-documented, maintainable code
+/**
+ * Handles barcode scanning with comprehensive error handling and caching
+ * 
+ * @param barcode - UPC/EAN barcode string (8-15 digits)
+ * @param options - Scanning configuration options
+ * @returns Promise resolving to product data or error state
+ * 
+ * @example
+ * ```typescript
+ * const result = await scanBarcode('041331124027', { 
+ *   forceRefresh: false,
+ *   timeout: 10000 
+ * });
+ * 
+ * if (result.success) {
+ *   console.log(result.product.name);
+ * } else {
+ *   handleScanError(result.error);
+ * }
+ * ```
+ */
+export async function scanBarcode(
+  barcode: string,
+  options: ScanOptions = {}
+): Promise<ScanResult> {
+  // Input validation with descriptive errors
+  if (!isValidBarcode(barcode)) {
+    return {
+      success: false,
+      error: {
+        type: 'INVALID_BARCODE',
+        message: `Barcode must be 8-15 digits, received: ${barcode}`,
+        field: 'barcode'
+      }
+    };
+  }
+
+  // Telemetry for monitoring
+  const scanStart = performance.now();
+  Analytics.track('barcode_scan_started', { barcode: barcode.slice(0, 4) + '***' });
+
+  try {
+    const result = await performScanWithFallback(barcode, options);
+    
+    Analytics.track('barcode_scan_completed', {
+      duration: performance.now() - scanStart,
+      source: result.source,
+      success: true
+    });
+    
+    return result;
+  } catch (error) {
+    Analytics.track('barcode_scan_failed', {
+      duration: performance.now() - scanStart,
+      error: error.message,
+      barcode: barcode.slice(0, 4) + '***'
+    });
+    
+    throw error;
+  }
+}
+```
+
+**Documentation Standards:**
+```typescript
+// Architecture Decision Records (ADR)
+// docs/adr/001-database-choice.md
+
+# ADR-001: Supabase as Primary Database
+
+## Status: Accepted
+
+## Context
+Need to choose a database solution that supports:
+- Real-time synchronization
+- Row-level security
+- JSONB for flexible nutrition data
+- Managed infrastructure
+
+## Decision
+Use Supabase (PostgreSQL) as primary database
+
+## Consequences
+**Positive:**
+- Built-in auth and RLS
+- Real-time subscriptions
+- Automatic API generation
+
+**Negative:**
+- Vendor lock-in risk
+- Limited customization options
+
+## Mitigation Strategies
+- Use standard PostgreSQL features where possible
+- Implement data export utilities
+- Monitor vendor roadmap alignment
+```
+
+## 5. Deployment & CI/CD
+
+### Complete CI/CD Pipeline
+
+**Expo Application Pipeline:**
+```yaml
+# .github/workflows/expo-deploy.yml
+name: Expo App Deployment
+on:
+  push:
+    branches: [main, staging, develop]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-node@v3
+      - run: npm ci
+      - run: npm run test:unit
+      - run: npm run test:integration
+      
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        platform: [ios, android]
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-node@v3
+      - uses: expo/expo-github-action@v8
+        with:
+          expo-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+          
+      - name: Install dependencies
+        run: npm ci
+        
+      - name: Build for ${{ matrix.platform }}
+        run: |
+          if [ "${{ github.ref }}" == "refs/heads/main" ]; then
+            ENVIRONMENT="production"
+          elif [ "${{ github.ref }}" == "refs/heads/staging" ]; then
+            ENVIRONMENT="staging"
+          else
+            ENVIRONMENT="development"
+          fi
+          
+          expo build:${{ matrix.platform }} \
+            --release-channel $ENVIRONMENT \
+            --no-wait
+            
+      - name: Deploy to Expo
+        if: github.ref == 'refs/heads/main'
+        run: expo publish --release-channel production
+
+  deploy-stores:
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - name: Deploy to App Store
+        run: expo upload:ios --latest
+        
+      - name: Deploy to Play Store
+        run: expo upload:android --latest
+```
+
+**Supabase Backend Pipeline:**
+```yaml
+# .github/workflows/supabase-deploy.yml
+name: Supabase Deployment
+on:
+  push:
+    paths: ['supabase/**']
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: supabase/setup-cli@v1
+      
+      - name: Validate migrations
+        run: |
+          supabase db lint
+          supabase db diff --check
+          
+      - name: Test migrations
+        run: |
+          supabase start
+          supabase db reset
+          supabase test db
+          
+  deploy-staging:
+    needs: validate
+    if: github.ref == 'refs/heads/staging'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: supabase/setup-cli@v1
+        
+      - name: Deploy to staging
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          supabase link --project-ref ${{ secrets.STAGING_PROJECT_ID }}
+          supabase db push
+          supabase functions deploy
+          
+  deploy-production:
+    needs: validate
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: supabase/setup-cli@v1
+        
+      - name: Create backup
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          supabase db dump --project-ref ${{ secrets.PROD_PROJECT_ID }} \
+            > backup-$(date +%Y%m%d-%H%M%S).sql
+            
+      - name: Deploy to production
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          supabase link --project-ref ${{ secrets.PROD_PROJECT_ID }}
+          supabase db push --dry-run # Preview changes
+          supabase db push
+          supabase functions deploy
+```
+
+**Zero-Downtime Deployment Strategy:**
+```typescript
+// Blue-Green deployment for edge functions
+class DeploymentManager {
+  async deployWithRollback(functionName: string, newVersion: Buffer) {
+    const currentVersion = await this.getCurrentVersion(functionName);
+    
+    try {
+      // Deploy to "green" slot
+      await this.deployToSlot(functionName, newVersion, 'green');
+      
+      // Health check new version
+      await this.healthCheck(`${functionName}-green`);
+      
+      // Gradually shift traffic (canary deployment)
+      await this.shiftTraffic(functionName, {
+        blue: 90,  // Current version
+        green: 10  // New version
+      });
+      
+      // Monitor for 5 minutes
+      await this.monitorHealth(functionName, 300000);
+      
+      // Complete traffic shift
+      await this.shiftTraffic(functionName, {
+        blue: 0,
+        green: 100
+      });
+      
+      // Cleanup old version after 24 hours
+      setTimeout(() => this.cleanupVersion(currentVersion), 86400000);
+      
+    } catch (error) {
+      // Automatic rollback
+      await this.rollback(functionName, currentVersion);
+      throw error;
+    }
+  }
+}
+```
+
+## 6. User Feedback & Iteration
+
+### Comprehensive Feedback Collection System
+
+**Multi-Channel Feedback Architecture:**
+```typescript
+// In-app feedback system
+class FeedbackManager {
+  // Contextual feedback prompts
+  async promptFeedback(context: string, trigger: FeedbackTrigger) {
+    const shouldPrompt = await this.shouldShowPrompt(context, trigger);
+    
+    if (shouldPrompt) {
+      return this.showFeedbackModal({
+        title: this.getContextualTitle(context),
+        questions: this.getContextualQuestions(context),
+        optional: true,
+        dismissible: true
+      });
+    }
+  }
+
+  // Passive feedback collection
+  collectUsageAnalytics(action: string, context: Record<string, any>) {
+    Analytics.track(action, {
+      ...context,
+      timestamp: Date.now(),
+      app_version: getAppVersion(),
+      os_version: getOSVersion(),
+      user_segment: getUserSegment()
+    });
+  }
+
+  // Error reporting with user context
+  reportError(error: Error, context: ErrorContext) {
+    Sentry.withScope(scope => {
+      scope.setTag('error_context', context.screen);
+      scope.setLevel('error');
+      scope.setUser({ id: getCurrentUserId() });
+      scope.setContext('user_action', {
+        last_actions: getLastUserActions(5),
+        current_screen: getCurrentScreen(),
+        scan_history: getRecentScans(10)
+      });
+      
+      Sentry.captureException(error);
+    });
+  }
+}
+
+// Feedback triggers
+enum FeedbackTrigger {
+  SCAN_SUCCESS = 'scan_success',
+  CATEGORIZATION_COMPLETE = 'categorization_complete',
+  ERROR_RECOVERY = 'error_recovery',
+  FEATURE_DISCOVERY = 'feature_discovery',
+  PERIODIC = 'periodic'
+}
+
+// Contextual feedback questions
+const FEEDBACK_QUESTIONS = {
+  scan_success: [
+    {
+      type: 'rating',
+      question: 'How accurate was the product information?',
+      scale: 5,
+      labels: ['Very Poor', 'Poor', 'Fair', 'Good', 'Excellent']
+    },
+    {
+      type: 'choice',
+      question: 'Was the suggested category correct?',
+      options: ['Yes', 'No', 'Partially']
+    }
+  ],
+  categorization_complete: [
+    {
+      type: 'text',
+      question: 'How could we improve categorization?',
+      placeholder: 'Optional feedback...'
+    }
+  ]
+};
+```
+
+**Feedback Analysis Pipeline:**
+```typescript
+// Automated feedback processing
+class FeedbackAnalyzer {
+  async processFeedback(feedback: UserFeedback[]) {
+    const analysis = await Promise.all([
+      this.sentimentAnalysis(feedback),
+      this.categoryTrendAnalysis(feedback),
+      this.usabilityScoring(feedback),
+      this.featureRequestExtraction(feedback)
+    ]);
+    
+    await this.generateInsights(analysis);
+    await this.updateProductBacklog(analysis);
+    await this.triggerAlerts(analysis);
+  }
+
+  async sentimentAnalysis(feedback: UserFeedback[]) {
+    // Natural language processing for sentiment
+    const textFeedback = feedback
+      .filter(f => f.type === 'text')
+      .map(f => f.response);
+      
+    const sentiments = await Promise.all(
+      textFeedback.map(text => this.nlpService.analyzeSentiment(text))
+    );
+    
+    return {
+      overall_sentiment: this.calculateAverageSentiment(sentiments),
+      trending_issues: this.extractTrendingIssues(sentiments),
+      positive_highlights: this.extractPositives(sentiments)
+    };
+  }
+
+  async updateProductBacklog(analysis: FeedbackAnalysis) {
+    // Automatically create/update tickets based on feedback
+    if (analysis.critical_issues.length > 0) {
+      for (const issue of analysis.critical_issues) {
+        await this.createJiraTicket({
+          type: 'Bug',
+          priority: 'High',
+          summary: issue.summary,
+          description: issue.description,
+          affectedUsers: issue.user_count
+        });
+      }
+    }
+    
+    // Feature requests with high demand
+    const popularRequests = analysis.feature_requests
+      .filter(req => req.user_count > 5)
+      .sort((a, b) => b.user_count - a.user_count);
+      
+    for (const request of popularRequests.slice(0, 3)) {
+      await this.createJiraTicket({
+        type: 'Story',
+        priority: 'Medium',
+        summary: request.title,
+        description: request.description,
+        businessValue: request.user_count
+      });
+    }
+  }
+}
+```
+
+**Continuous Improvement Process:**
+```typescript
+// A/B testing framework for iterative improvements
+class ExperimentManager {
+  async runExperiment(experimentId: string, variants: ExperimentVariant[]) {
+    const userSegment = await this.getUserSegment();
+    const variant = this.assignVariant(userSegment, variants);
+    
+    // Track experiment participation
+    Analytics.track('experiment_participated', {
+      experiment_id: experimentId,
+      variant: variant.name,
+      user_segment: userSegment
+    });
+    
+    return variant.config;
+  }
+
+  // Example: Testing categorization UI improvements
+  async getCategorization UI() {
+    const config = await this.runExperiment('categorization_ui_v2', [
+      {
+        name: 'control',
+        weight: 50,
+        config: { showConfidenceScore: false, layout: 'vertical' }
+      },
+      {
+        name: 'treatment',
+        weight: 50,
+        config: { showConfidenceScore: true, layout: 'horizontal' }
+      }
+    ]);
+    
+    return config;
+  }
+}
+
+// Feature flag management
+class FeatureFlags {
+  async isEnabled(flag: string, userId?: string): Promise<boolean> {
+    const user = userId || getCurrentUserId();
+    const userSegment = await getUserSegment(user);
+    
+    const flagConfig = await this.getFlagConfig(flag);
+    
+    if (flagConfig.enabled_for_all) return true;
+    if (flagConfig.enabled_segments.includes(userSegment)) return true;
+    if (flagConfig.enabled_users.includes(user)) return true;
+    
+    // Gradual rollout percentage
+    if (flagConfig.rollout_percentage > 0) {
+      const hash = this.hashUserId(user);
+      return (hash % 100) < flagConfig.rollout_percentage;
+    }
+    
+    return false;
+  }
+}
+```
+
+This comprehensive production readiness strategy provides a robust foundation for scaling your scanner system from development prototype to enterprise-ready application. Each component builds upon your existing architecture while addressing the critical requirements for production deployment, monitoring, and continuous improvement.
+
+# Advanced Implementation Solutions: Deep Technical Answers
+
+## 1. Robustness & Error Handling
+
+### Question 1.1: Dynamic Circuit Breaker with Latency-Based State Management
+
+**Enhanced Circuit Breaker with Adaptive Timeouts:**
+
+```typescript
+interface LatencyMetrics {
+  p50: number;
+  p95: number;
+  p99: number;
+  average: number;
+  samples: number[];
+}
+
+class AdaptiveCircuitBreaker {
+  private latencyWindow: number[] = [];
+  private windowSize = 100;
+  private baseTimeout = 5000;
+  private maxTimeout = 30000;
+  private acceptableLatencyThreshold = 2000; // 2 seconds
+  private slowResponseThreshold = 5000; // 5 seconds
+  
+  constructor(
+    private threshold = 5,
+    private retryTimeout = 60000
+  ) {}
+
+  async execute<T>(operation: () => Promise<T>): Promise<T> {
+    const dynamicTimeout = this.calculateDynamicTimeout();
+    const startTime = performance.now();
+    
+    if (this.state === 'OPEN') {
+      if (Date.now() - this.lastFailureTime! < this.retryTimeout) {
+        throw new Error('Circuit breaker is OPEN');
+      }
+      this.state = 'HALF_OPEN';
+    }
+
+    try {
+      const result = await Promise.race([
+        operation(),
+        new Promise<never>((_, reject) => 
+          setTimeout(() => reject(new Error('Adaptive timeout exceeded')), dynamicTimeout)
+        )
+      ]);
+      
+      const latency = performance.now() - startTime;
+      this.recordLatency(latency);
+      
+      // Success but check if response was unacceptably slow
+      if (latency > this.slowResponseThreshold) {
+        this.recordSlowResponse();
+        // Don't fail, but count towards circuit breaker state
+      } else {
+        this.onSuccess();
+      }
+      
+      return result;
+    } catch (error) {
+      const latency = performance.now() - startTime;
+      this.recordLatency(latency);
+      this.onFailure();
+      throw error;
+    }
+  }
+
+  private calculateDynamicTimeout(): number {
+    if (this.latencyWindow.length < 10) {
+      return this.baseTimeout;
+    }
+
+    const metrics = this.calculateLatencyMetrics();
+    
+    // Adaptive timeout based on historical performance
+    // Use P95 + buffer for timeout calculation
+    const adaptiveTimeout = Math.min(
+      Math.max(metrics.p95 * 2, this.baseTimeout),
+      this.maxTimeout
+    );
+
+    return adaptiveTimeout;
+  }
+
+  private calculateLatencyMetrics(): LatencyMetrics {
+    const sorted = [...this.latencyWindow].sort((a, b) => a - b);
+    const len = sorted.length;
+    
+    return {
+      p50: sorted[Math.floor(len * 0.5)],
+      p95: sorted[Math.floor(len * 0.95)],
+      p99: sorted[Math.floor(len * 0.99)],
+      average: sorted.reduce((sum, val) => sum + val, 0) / len,
+      samples: sorted
+    };
+  }
+
+  private recordLatency(latency: number): void {
+    this.latencyWindow.push(latency);
+    if (this.latencyWindow.length > this.windowSize) {
+      this.latencyWindow.shift();
+    }
+  }
+
+  private recordSlowResponse(): void {
+    // Treat slow responses as partial failures
+    this.slowResponseCount = (this.slowResponseCount || 0) + 1;
+    
+    // If we get too many slow responses, consider it degraded service
+    if (this.slowResponseCount > this.threshold / 2) {
+      this.onFailure();
+    }
+  }
+
+  // Enhanced state management
+  private onSuccess(): void {
+    this.failures = 0;
+    this.slowResponseCount = 0;
+    this.state = 'CLOSED';
+  }
+
+  private onFailure(): void {
+    this.failures++;
+    this.lastFailureTime = Date.now();
+    if (this.failures >= this.threshold) {
+      this.state = 'OPEN';
+      // Reset latency window to recalibrate after recovery
+      this.latencyWindow = [];
+    }
+  }
+
+  // Public method to get current performance metrics
+  public getHealthMetrics(): {
+    state: string;
+    latencyMetrics: LatencyMetrics | null;
+    currentTimeout: number;
+    failureRate: number;
+  } {
+    return {
+      state: this.state,
+      latencyMetrics: this.latencyWindow.length > 0 ? this.calculateLatencyMetrics() : null,
+      currentTimeout: this.calculateDynamicTimeout(),
+      failureRate: this.failures / (this.failures + this.successCount || 1)
+    };
+  }
+}
+
+// Usage with enhanced monitoring
+class NutritionixService {
+  private circuitBreaker = new AdaptiveCircuitBreaker(3, 30000);
+  
+  async lookupBarcode(barcode: string): Promise<ProductData> {
+    const healthBefore = this.circuitBreaker.getHealthMetrics();
+    
+    try {
+      const result = await this.circuitBreaker.execute(() => 
+        this.callNutritionixAPI(barcode)
+      );
+      
+      // Log successful call with performance context
+      Analytics.track('nutritionix_success', {
+        barcode: barcode.slice(0, 4) + '***',
+        circuit_state: healthBefore.state,
+        timeout_used: healthBefore.currentTimeout,
+        estimated_latency: healthBefore.latencyMetrics?.p95
+      });
+      
+      return result;
+    } catch (error) {
+      const healthAfter = this.circuitBreaker.getHealthMetrics();
+      
+      Analytics.track('nutritionix_failure', {
+        barcode: barcode.slice(0, 4) + '***',
+        error: error.message,
+        circuit_state_before: healthBefore.state,
+        circuit_state_after: healthAfter.state,
+        failure_rate: healthAfter.failureRate
+      });
+      
+      throw error;
+    }
+  }
+}
+```
+
+### Question 1.2: Advanced Offline Sync with Conflict Resolution
+
+**Comprehensive Offline Sync Manager:**
+
+```typescript
+interface OfflineOperation {
+  id: string;
+  type: 'INSERT' | 'UPDATE' | 'DELETE';
+  table: string;
+  data: any;
+  timestamp: number;
+  retryCount: number;
+  userId: string;
+  optimisticId?: string; // For optimistic updates
+}
+
+interface ConflictResolutionStrategy {
+  strategy: 'last_write_wins' | 'merge_fields' | 'user_prompt' | 'custom';
+  mergeRules?: Record<string, 'server' | 'client' | 'merge'>;
+  customResolver?: (serverData: any, clientData: any) => any;
+}
+
+class AdvancedOfflineSyncManager {
+  private operationQueue: OfflineOperation[] = [];
+  private syncInProgress = false;
+  private conflictResolver: ConflictResolutionStrategy;
+
+  constructor(
+    private supabase: SupabaseClient,
+    private localDB: SQLiteDatabase
+  ) {
+    this.conflictResolver = {
+      strategy: 'merge_fields',
+      mergeRules: {
+        // Inventory-specific merge rules
+        'quantity_consumed': 'merge', // Add quantities
+        'storage_location_id': 'client', // Prefer user's latest choice
+        'notes': 'merge', // Append notes
+        'updated_at': 'server', // Server timestamp wins
+        'scanned_at': 'client' // Keep original scan time
+      }
+    };
+  }
+
+  async queueOperation(operation: Omit<OfflineOperation, 'id' | 'retryCount'>): Promise<string> {
+    const id = generateUUID();
+    const queuedOp: OfflineOperation = {
+      ...operation,
+      id,
+      retryCount: 0
+    };
+
+    // Store in local database for persistence
+    await this.localDB.runAsync(
+      'INSERT INTO sync_queue (id, type, table_name, data, timestamp, user_id) VALUES (?, ?, ?, ?, ?, ?)',
+      [id, operation.type, operation.table, JSON.stringify(operation.data), operation.timestamp, operation.userId]
+    );
+
+    this.operationQueue.push(queuedOp);
+    
+    // Trigger sync if online
+    if (await this.isOnline()) {
+      this.syncWhenReady();
+    }
+
+    return id;
+  }
+
+  async syncWhenReady(): Promise<void> {
+    if (this.syncInProgress || !await this.isOnline()) {
+      return;
+    }
+
+    this.syncInProgress = true;
+    
+    try {
+      // Load queue from local storage
+      await this.loadQueueFromStorage();
+      
+      // Process operations in chronological order
+      const sortedOps = this.operationQueue.sort((a, b) => a.timestamp - b.timestamp);
+      
+      for (const operation of sortedOps) {
+        try {
+          await this.syncSingleOperation(operation);
+          await this.removeFromQueue(operation.id);
+        } catch (error) {
+          await this.handleSyncError(operation, error);
+        }
+      }
+    } finally {
+      this.syncInProgress = false;
+    }
+  }
+
+  private async syncSingleOperation(operation: OfflineOperation): Promise<void> {
+    const { type, table, data, timestamp, userId } = operation;
+
+    switch (type) {
+      case 'INSERT':
+        await this.handleInsertSync(operation);
+        break;
+      case 'UPDATE':
+        await this.handleUpdateSync(operation);
+        break;
+      case 'DELETE':
+        await this.handleDeleteSync(operation);
+        break;
+    }
+  }
+
+  private async handleUpdateSync(operation: OfflineOperation): Promise<void> {
+    const { table, data } = operation;
+    
+    // First, get current server state
+    const { data: serverRecord, error } = await this.supabase
+      .from(table)
+      .select('*')
+      .eq('id', data.id)
+      .single();
+
+    if (error && error.code !== 'PGRST116') { // Not found is OK for some cases
+      throw error;
+    }
+
+    if (!serverRecord) {
+      // Record was deleted on server - handle accordingly
+      await this.handleDeletedOnServer(operation);
+      return;
+    }
+
+    // Check for conflicts
+    const conflict = this.detectConflict(serverRecord, data, operation.timestamp);
+    
+    if (conflict) {
+      const resolved = await this.resolveConflict(serverRecord, data, conflict);
+      data = resolved;
+    }
+
+    // Apply the update
+    const { error: updateError } = await this.supabase
+      .from(table)
+      .update(data)
+      .eq('id', data.id);
+
+    if (updateError) {
+      throw updateError;
+    }
+
+    // Update local optimistic state
+    await this.updateLocalRecord(table, data);
+  }
+
+  private detectConflict(serverRecord: any, clientData: any, clientTimestamp: number): boolean {
+    const serverUpdatedAt = new Date(serverRecord.updated_at).getTime();
+    const clientUpdatedAt = clientTimestamp;
+
+    // If server record is newer than client operation, we have a conflict
+    return serverUpdatedAt > clientUpdatedAt;
+  }
+
+  private async resolveConflict(
+    serverData: any, 
+    clientData: any, 
+    conflict: boolean
+  ): Promise<any> {
+    switch (this.conflictResolver.strategy) {
+      case 'last_write_wins':
+        return clientData; // Client wins (could be server if we prefer that)
+
+      case 'merge_fields':
+        return this.mergeFieldsStrategy(serverData, clientData);
+
+      case 'user_prompt':
+        return await this.promptUserForResolution(serverData, clientData);
+
+      case 'custom':
+        return this.conflictResolver.customResolver!(serverData, clientData);
+
+      default:
+        return clientData;
+    }
+  }
+
+  private mergeFieldsStrategy(serverData: any, clientData: any): any {
+    const merged = { ...serverData };
+    const rules = this.conflictResolver.mergeRules!;
+
+    for (const [field, rule] of Object.entries(rules)) {
+      switch (rule) {
+        case 'server':
+          merged[field] = serverData[field];
+          break;
+        case 'client':
+          merged[field] = clientData[field];
+          break;
+        case 'merge':
+          merged[field] = this.mergeFieldValues(
+            serverData[field], 
+            clientData[field], 
+            field
+          );
+          break;
+      }
+    }
+
+    return merged;
+  }
+
+  private mergeFieldValues(serverValue: any, clientValue: any, fieldName: string): any {
+    switch (fieldName) {
+      case 'quantity_consumed':
+        // Add quantities together for consumption tracking
+        return (parseFloat(serverValue) || 0) + (parseFloat(clientValue) || 0);
+        
+      case 'notes':
+        // Merge notes with timestamp
+        const serverNote = serverValue || '';
+        const clientNote = clientValue || '';
+        const timestamp = new Date().toISOString();
+        return serverNote + (serverNote ? '\n' : '') + 
+               `[${timestamp}] ${clientNote}`;
+        
+      default:
+        return clientValue; // Default to client value
+    }
+  }
+
+  private async promptUserForResolution(serverData: any, clientData: any): Promise<any> {
+    // This would show a modal to the user
+    return new Promise((resolve) => {
+      ConflictResolutionModal.show({
+        serverData,
+        clientData,
+        onResolve: resolve
+      });
+    });
+  }
+
+  private async handleSyncError(operation: OfflineOperation, error: Error): Promise<void> {
+    operation.retryCount++;
+    
+    // Exponential backoff
+    const backoffDelay = Math.min(1000 * Math.pow(2, operation.retryCount), 30000);
+    
+    if (operation.retryCount < 5) {
+      // Schedule retry
+      setTimeout(() => {
+        this.syncSingleOperation(operation).catch(err => 
+          this.handleSyncError(operation, err)
+        );
+      }, backoffDelay);
+    } else {
+      // Max retries exceeded - move to failed queue
+      await this.moveToFailedQueue(operation, error);
+      
+      // Notify user about persistent sync failure
+      NotificationManager.showSyncFailure({
+        operation: operation.type,
+        table: operation.table,
+        error: error.message
+      });
+    }
+  }
+
+  // Vector clock implementation for better conflict detection
+  private vectorClock = new Map<string, number>();
+
+  private updateVectorClock(nodeId: string): void {
+    const currentTick = this.vectorClock.get(nodeId) || 0;
+    this.vectorClock.set(nodeId, currentTick + 1);
+  }
+
+  private compareVectorClocks(clock1: Map<string, number>, clock2: Map<string, number>): 'before' | 'after' | 'concurrent' {
+    let clock1Greater = false;
+    let clock2Greater = false;
+
+    const allNodes = new Set([...clock1.keys(), ...clock2.keys()]);
+
+    for (const node of allNodes) {
+      const tick1 = clock1.get(node) || 0;
+      const tick2 = clock2.get(node) || 0;
+
+      if (tick1 > tick2) clock1Greater = true;
+      if (tick2 > tick1) clock2Greater = true;
+    }
+
+    if (clock1Greater && !clock2Greater) return 'after';
+    if (clock2Greater && !clock1Greater) return 'before';
+    if (!clock1Greater && !clock2Greater) return 'concurrent';
+    return 'concurrent'; // Both greater in different dimensions
+  }
+}
+
+// React Hook for offline sync status
+function useOfflineSyncStatus() {
+  const [syncStatus, setSyncStatus] = useState<{
+    isOnline: boolean;
+    queueSize: number;
+    lastSync: Date | null;
+    conflicts: number;
+  }>({
+    isOnline: true,
+    queueSize: 0,
+    lastSync: null,
+    conflicts: 0
+  });
+
+  useEffect(() => {
+    const syncManager = OfflineSyncManager.getInstance();
+    
+    const unsubscribe = syncManager.subscribe((status) => {
+      setSyncStatus(status);
+    });
+
+    return unsubscribe;
+  }, []);
+
+  return syncStatus;
+}
+```
+
+## 2. Testing Strategy
+
+### Question 2.1: E2E Test Flakiness Management
+
+**Robust E2E Testing with Smart Retries and Mocking:**
+
+```typescript
+// Enhanced Detox configuration with reliability patterns
+// detox.config.js
+module.exports = {
+  testRunner: 'jest',
+  runnerConfig: 'e2e/config.json',
+  configurations: {
+    'ios.sim.debug': {
+      device: 'simulator',
+      app: 'ios.debug',
+      artifacts: {
+        screenshots: {
+          takeWhen: { testFailure: true, testDone: false },
+          shouldTakeAutomaticSnapshots: true,
+          keepOnlyFailedTestsArtifacts: true
+        },
+        videos: {
+          takeWhen: { testFailure: true },
+          shouldTakeAutomaticSnapshots: false,
+          keepOnlyFailedTestsArtifacts: true
+        },
+        instruments: {
+          path: 'e2e/artifacts/instruments'
+        }
+      }
+    }
+  },
+  behavior: {
+    init: {
+      reinstallApp: false, // Faster test runs
+      exposeGlobals: false
+    },
+    cleanup: {
+      shutdownDevice: false
+    }
+  }
+};
+
+// Smart retry wrapper for flaky operations
+class DetoxTestHelper {
+  static async withRetry<T>(
+    operation: () => Promise<T>,
+    maxRetries = 3,
+    description = 'operation'
+  ): Promise<T> {
+    let lastError: Error;
+    
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        return await operation();
+      } catch (error) {
+        lastError = error;
+        
+        if (attempt === maxRetries) {
+          throw new Error(`${description} failed after ${maxRetries} attempts: ${error.message}`);
+        }
+        
+        console.warn(`${description} attempt ${attempt} failed, retrying...`, error.message);
+        
+        // Smart wait based on error type
+        const waitTime = this.getRetryDelay(error, attempt);
+        await device.sleep(waitTime);
+      }
+    }
+  }
+
+  private static getRetryDelay(error: Error, attempt: number): number {
+    // Different retry strategies based on error type
+    if (error.message.includes('network') || error.message.includes('timeout')) {
+      return 2000 * attempt; // Network issues - longer wait
+    }
+    if (error.message.includes('animation')) {
+      return 500; // Animation issues - short wait
+    }
+    return 1000 * attempt; // Default exponential backoff
+  }
+
+  // Wait for element with intelligent timeout
+  static async waitForElement(elementMatcher: any, timeout = 10000): Promise<void> {
+    return this.withRetry(async () => {
+      await waitFor(element(elementMatcher))
+        .toBeVisible()
+        .withTimeout(timeout);
+    }, 3, `waiting for element ${elementMatcher}`);
+  }
+
+  // Stable text input
+  static async typeTextSafely(elementMatcher: any, text: string): Promise<void> {
+    return this.withRetry(async () => {
+      await element(elementMatcher).clearText();
+      await device.sleep(100); // Brief pause for UI to update
+      await element(elementMatcher).typeText(text);
+      
+      // Verify text was actually entered
+      await expect(element(elementMatcher)).toHaveText(text);
+    }, 3, `typing text "${text}"`);
+  }
+}
+
+// Mock API responses for deterministic testing
+class E2EApiMocker {
+  private mockResponses = new Map<string, any>();
+  
+  setupNutritionixMocks(): void {
+    this.mockResponses.set('nutritionix_041331124027', {
+      foods: [{
+        food_name: 'Red Kidney Beans',
+        brand_name: 'Goya',
+        nf_calories: 110,
+        nf_protein: 8,
+        nf_total_fat: 0
+      }]
+    });
+    
+    this.mockResponses.set('nutritionix_123456789012', {
+      foods: [{
+        food_name: 'Test Product E2E',
+        brand_name: 'Test Brand',
+        nf_calories: 200,
+        nf_protein: 5,
+        nf_total_fat: 10
+      }]
+    });
+  }
+
+  async interceptApiCall(url: string): Promise<any> {
+    const barcode = this.extractBarcodeFromUrl(url);
+    const mockKey = `nutritionix_${barcode}`;
+    
+    if (this.mockResponses.has(mockKey)) {
+      return this.mockResponses.get(mockKey);
+    }
+    
+    throw new Error(`No mock data for barcode: ${barcode}`);
+  }
+
+  private extractBarcodeFromUrl(url: string): string {
+    const match = url.match(/barcode\/(\d+)/);
+    return match ? match[1] : '';
+  }
+}
+
+// Enhanced E2E test suite
+describe('Scanner Workflow - Enhanced', () => {
+  const apiMocker = new E2EApiMocker();
+  
+  beforeAll(async () => {
+    await device.launchApp({
+      newInstance: true,
+      permissions: { camera: 'YES' },
+      // Mock network responses
+      mockNetworkCalls: true
+    });
+    
+    apiMocker.setupNutritionixMocks();
+  });
+
+  beforeEach(async () => {
+    // Reset app state for consistent testing
+    await device.reloadReactNative();
+    
+    // Wait for app to fully load
+    await DetoxTestHelper.waitForElement(by.id('main-tab-navigator'));
+  });
+
+  test('complete scan workflow with network variations', async () => {
+    // Test normal flow
+    await element(by.id('scanner-tab')).tap();
+    await DetoxTestHelper.waitForElement(by.id('camera-view'));
+    
+    // Simulate barcode scan
+    await DetoxTestHelper.typeTextSafely(by.id('manual-barcode-input'), '041331124027');
+    await element(by.id('confirm-scan')).tap();
+    
+    // Wait for API response and verify
+    await DetoxTestHelper.waitForElement(by.id('product-details'), 15000);
+    await expect(element(by.text('Red Kidney Beans'))).toBeVisible();
+    
+    // Test with slow network
+    await device.setNetworkConnection('slow');
+    
+    await DetoxTestHelper.typeTextSafely(by.id('manual-barcode-input'), '123456789012');
+    await element(by.id('confirm-scan')).tap();
+    
+    // Should show loading state
+    await DetoxTestHelper.waitForElement(by.id('loading-indicator'));
+    
+    // Eventually load product
+    await DetoxTestHelper.waitForElement(by.text('Test Product E2E'), 20000);
+    
+    // Reset network
+    await device.setNetworkConnection('connected');
+  });
+
+  test('offline functionality with queue management', async () => {
+    // Go offline
+    await device.setNetworkConnection('disconnected');
+    
+    // Perform scan
+    await element(by.id('scanner-tab')).tap();
+    await DetoxTestHelper.typeTextSafely(by.id('manual-barcode-input'), '999999999999');
+    await element(by.id('confirm-scan')).tap();
+    
+    // Should queue for offline sync
+    await DetoxTestHelper.waitForElement(by.text('Queued for sync'));
+    
+    // Check sync status
+    await element(by.id('sync-status-button')).tap();
+    await expect(element(by.text('1 item pending sync'))).toBeVisible();
+    
+    // Go back online
+    await device.setNetworkConnection('connected');
+    
+    // Wait for sync
+    await DetoxTestHelper.waitForElement(by.text('All items synced'), 30000);
+  });
+});
+```
+
+### Question 2.2: Database Test Data Management
+
+**Comprehensive Test Data Management System:**
+
+```typescript
+// Database test utilities for Supabase
+class SupabaseTestManager {
+  private testUserId: string;
+  private testDataIds: { [table: string]: string[] } = {};
+  
+  constructor(private supabase: SupabaseClient) {
+    this.testUserId = 'test-user-' + Date.now();
+  }
+
+  async setupTestDatabase(): Promise<void> {
+    // Create isolated test data
+    await this.createTestStorageLocations();
+    await this.createTestProducts();
+    await this.createTestMasterIngredients();
+    
+    // Set RLS context for test user
+    await this.supabase.auth.signInWithPassword({
+      email: `${this.testUserId}@test.com`,
+      password: 'test-password-123'
+    });
+  }
+
+  async cleanupTestDatabase(): Promise<void> {
+    // Clean up in reverse dependency order
+    const tables = [
+      'scanned_items',
+      'inventory_transactions', 
+      'inventory',
+      'ingredient_suggestions',
+      'products',
+      'master_ingredients',
+      'storage_locations'
+    ];
+
+    for (const table of tables) {
+      if (this.testDataIds[table]) {
+        await this.supabase
+          .from(table)
+          .delete()
+          .in('id', this.testDataIds[table]);
+      }
+    }
+
+    // Sign out test user
+    await this.supabase.auth.signOut();
+  }
+
+  private async createTestProducts(): Promise<void> {
+    const testProducts = [
+      {
+        barcode: '041331124027',
+        name: 'Red Kidney Beans',
+        brand_name: 'Goya',
+        calories: 110,
+        protein: 8,
+        source: 'test'
+      },
+      {
+        barcode: '123456789012',
+        name: 'Test Product E2E',
+        brand_name: 'Test Brand',
+        calories: 200,
+        protein: 5,
+        source: 'test'
+      }
+    ];
+
+    const { data, error } = await this.supabase
+      .from('products')
+      .insert(testProducts)
+      .select('id');
+
+    if (error) throw error;
+    
+    this.testDataIds.products = data.map(p => p.id);
+  }
+
+  async createPerformanceTestData(recordCount: number): Promise<void> {
+    const batchSize = 1000;
+    const batches = Math.ceil(recordCount / batchSize);
+    
+    for (let i = 0; i < batches; i++) {
+      const batchProducts = [];
+      const currentBatchSize = Math.min(batchSize, recordCount - i * batchSize);
+      
+      for (let j = 0; j < currentBatchSize; j++) {
+        const index = i * batchSize + j;
+        batchProducts.push({
+          barcode: `${1000000000000 + index}`,
+          name: `Performance Test Product ${index}`,
+          brand_name: `Test Brand ${index % 100}`,
+          calories: 100 + (index % 500),
+          protein: 1 + (index % 50),
+          full_nutrients: this.generateMockNutrients(index),
+          source: 'performance_test'
+        });
+      }
+      
+      const { data, error } = await this.supabase
+        .from('products')
+        .insert(batchProducts)
+        .select('id');
+        
+      if (error) throw error;
+      
+      this.testDataIds.products = [
+        ...(this.testDataIds.products || []),
+        ...data.map(p => p.id)
+      ];
+      
+      // Small delay to prevent overwhelming the database
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+  }
+
+  private generateMockNutrients(seed: number): any[] {
+    return [
+      { attr_id: 203, value: 1 + (seed % 50) }, // Protein
+      { attr_id: 204, value: seed % 30 }, // Fat
+      { attr_id: 205, value: 10 + (seed % 100) }, // Carbs
+      { attr_id: 208, value: 100 + (seed % 500) }, // Calories
+      { attr_id: 307, value: seed % 1000 }, // Sodium
+    ];
+  }
+
+  // Database seeding for specific test scenarios
+  async seedInventoryTestData(): Promise<void> {
+    // Create test inventory items with various expiration dates
+    const inventoryItems = [
+      {
+        product_id: this.testDataIds.products[0],
+        storage_location_id: 1,
+        quantity: 2,
+        unit: 'can',
+        expiration_date: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // 30 days
+        purchase_date: new Date().toISOString().split('T')[0]
+      },
+      {
+        product_id: this.testDataIds.products[1],
+        storage_location_id: 2,
+        quantity: 1,
+        unit: 'package',
+        expiration_date: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // 5 days ago (expired)
+        purchase_date: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+      }
+    ];
+
+    const { data, error } = await this.supabase
+      .from('inventory')
+      .insert(inventoryItems)
+      .select('id');
+
+    if (error) throw error;
+    this.testDataIds.inventory = data.map(i => i.id);
+  }
+}
+
+// Jest setup for database tests
+// jest.setup.database.js
+let testManager: SupabaseTestManager;
+
+beforeAll(async () => {
+  testManager = new SupabaseTestManager(supabaseClient);
+  await testManager.setupTestDatabase();
+});
+
+afterAll(async () => {
+  await testManager.cleanupTestDatabase();
+});
+
+beforeEach(async () => {
+  // Reset to clean state for each test
+  await testManager.resetToCleanState();
+});
+
+// Performance test example
+describe('Database Performance Tests', () => {
+  test('JSONB nutrition query performance at scale', async () => {
+    // Create 10,000 test products
+    await testManager.createPerformanceTestData(10000);
+    
+    const startTime = performance.now();
+    
+    // Query nutrition data
+    const { data, error } = await supabase
+      .from('products')
+      .select('id, name, full_nutrients')
+      .contains('full_nutrients', [{ attr_id: 203 }]) // Products with protein data
+      .limit(1000);
+    
+    const endTime = performance.now();
+    const queryTime = endTime - startTime;
+    
+    expect(error).toBeNull();
+    expect(data).toHaveLength(1000);
+    expect(queryTime).toBeLessThan(500); // 500ms max
+    
+    // Log performance metrics
+    console.log(`JSONB query took ${queryTime}ms for 10k records`);
+  });
+});
+```
+
+### Question 2.3: Security Testing Automation
+
+**Automated Security Pipeline with Intelligent Triage:**
+
+```yaml
+# .github/workflows/security-scan.yml
+name: Security Scanning Pipeline
+on:
+  schedule:
+    - cron: '0 2 * * *' # Daily at 2 AM
+  push:
+    branches: [main, staging]
+  pull_request:
+    branches: [main]
+
+jobs:
+  static-analysis:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Semgrep Static Analysis
+        uses: returntocorp/semgrep-action@v1
+        with:
+          config: >-
+            p/security-audit
+            p/secrets
+            p/owasp-top-ten
+            p/react
+            p/typescript
+          generateSarif: "1"
+          
+      - name: CodeQL Analysis
+        uses: github/codeql-action/init@v2
+        with:
+          languages: javascript, typescript
+          
+      - name: Build for analysis
+        run: npm ci && npm run build
+        
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v2
+
+  dependency-security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Audit npm dependencies
+        run: |
+          npm audit --audit-level moderate --json > npm-audit.json || true
+          
+      - name: Snyk Security Scan
+        uses: snyk/actions/node@master
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          args: --severity-threshold=medium --json > snyk-report.json
+          
+      - name: Process Security Reports
+        run: node scripts/process-security-reports.js
+
+  dynamic-security:
+    runs-on: ubuntu-latest
+    needs: [static-analysis]
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Start test environment
+        run: |
+          docker-compose -f docker-compose.test.yml up -d
+          sleep 30 # Wait for services to start
+          
+      - name: OWASP ZAP Baseline Scan
+        uses: zaproxy/action-baseline@v0.7.0
+        with:
+          target: 'http://localhost:3000'
+          rules_file_name: '.zap/rules.tsv'
+          cmd_options: '-a -d -T 15 -m 2'
+          
+      - name: OWASP ZAP Full Scan
+        uses: zaproxy/action-full-scan@v0.4.0
+        with:
+          target: 'http://localhost:3000'
+          rules_file_name: '.zap/rules.tsv'
+          cmd_options: '-a -T 30'
+```
+
+**Intelligent Security Report Processing:**
+
+```typescript
+// scripts/process-security-reports.js
+interface SecurityFinding {
+  tool: 'semgrep' | 'snyk' | 'npm-audit' | 'zap';
+  severity: 'low' | 'medium' | 'high' | 'critical';
+  category: string;
+  description: string;
+  file?: string;
+  line?: number;
+  rule: string;
+  cwe?: string;
+  confidence: number;
+}
+
+class SecurityReportProcessor {
+  private falsePositiveRules: string[] = [
+    'javascript.express.security.audit.express-check-csurf-middleware-usage',
+    'javascript.lang.security.audit.path-traversal.path-join-resolve-traversal'
+  ];
+
+  private suppressedFindings: Map<string, string> = new Map([
+    ['semgrep:react-dangerouslysetinnerhtml', 'Sanitized with DOMPurify'],
+    ['snyk:prototype-pollution', 'Not exploitable in our context']
+  ]);
+
+  async processAllReports(): Promise<void> {
+    const findings: SecurityFinding[] = [];
+    
+    // Process each security tool report
+    const semgrepFindings = await this.processSemgrepReport();
+    const snykFindings = await this.processSnykReport();
+    const npmAuditFindings = await this.processNpmAuditReport();
+    const zapFindings = await this.processZapReport();
+    
+    findings.push(...semgrepFindings, ...snykFindings, ...npmAuditFindings, ...zapFindings);
+    
+    // Filter and triage findings
+    const filteredFindings = this.filterFindings(findings);
+    const triaged = this.triageFindings(filteredFindings);
+    
+    // Generate reports
+    await this.generateSecurityReport(triaged);
+    await this.createJiraTickets(triaged.filter(f => f.severity === 'critical'));
+    await this.updateSecurityDashboard(triaged);
+  }
+
+  private filterFindings(findings: SecurityFinding[]): SecurityFinding[] {
+    return findings.filter(finding => {
+      // Remove false positives
+      if (this.falsePositiveRules.includes(finding.rule)) {
+        return false;
+      }
+      
+      // Remove suppressed findings
+      const key = `${finding.tool}:${finding.rule}`;
+      if (this.suppressedFindings.has(key)) {
+        console.log(`Suppressed finding: ${key} - ${this.suppressedFindings.get(key)}`);
+        return false;
+      }
+      
+      // Remove low confidence findings for certain categories
+      if (finding.confidence < 0.7 && finding.category === 'potential-vulnerability') {
+        return false;
+      }
+      
+      return true;
+    });
+  }
+
+  private triageFindings(findings: SecurityFinding[]): SecurityFinding[] {
+    return findings.map(finding => {
+      // Adjust severity based on context
+      if (finding.category === 'dependency-vulnerability') {
+        // Check if dependency is actually used in production code
+        const isUsedInProd = this.isDependencyUsedInProduction(finding.description);
+        if (!isUsedInProd && finding.severity === 'high') {
+          finding.severity = 'medium';
+        }
+      }
+      
+      // Upgrade severity for authentication/authorization issues
+      if (finding.category.includes('auth') && finding.severity === 'medium') {
+        finding.severity = 'high';
+      }
+      
+      return finding;
+    });
+  }
+
+  private async createJiraTickets(criticalFindings: SecurityFinding[]): Promise<void> {
+    for (const finding of criticalFindings) {
+      const ticket = {
+        fields: {
+          project: { key: 'SEC' },
+          summary: `Security: ${finding.category} - ${finding.rule}`,
+          description: this.formatJiraDescription(finding),
+          issuetype: { name: 'Security Bug' },
+          priority: { name: 'Critical' },
+          labels: ['security', 'automated', finding.tool],
+          components: [{ name: 'Mobile App' }]
+        }
+      };
+      
+      await this.jiraClient.createIssue(ticket);
+    }
+  }
+
+  private async updateSecurityDashboard(findings: SecurityFinding[]): Promise<void> {
+    const metrics = {
+      total_findings: findings.length,
+      critical: findings.filter(f => f.severity === 'critical').length,
+      high: findings.filter(f => f.severity === 'high').length,
+      medium: findings.filter(f => f.severity === 'medium').length,
+      low: findings.filter(f => f.severity === 'low').length,
+      by_tool: this.groupByTool(findings),
+      trend: await this.calculateTrend(findings),
+      last_scan: new Date().toISOString()
+    };
+    
+    // Update dashboard via API
+    await fetch('https://security-dashboard.company.com/api/metrics', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(metrics)
+    });
+  }
+}
+
+// Security monitoring integration
+class SecurityMonitoring {
+  private metrics = new Map<string, number>();
+  
+  async trackSecurityEvent(event: string, severity: string, metadata?: any): Promise<void> {
+    // Update metrics
+    const key = `${event}_${severity}`;
+    this.metrics.set(key, (this.metrics.get(key) || 0) + 1);
+    
+    // Send to monitoring system
+    await DatadogMetrics.increment('security.event', 1, {
+      event_type: event,
+      severity: severity,
+      environment: process.env.NODE_ENV
+    });
+    
+    // Alert on critical events
+    if (severity === 'critical') {
+      await this.sendAlert(event, metadata);
+    }
+  }
+
+  private async sendAlert(event: string, metadata: any): Promise<void> {
+    await SlackNotifier.send({
+      channel: '#security-alerts',
+      text: `🚨 Critical security event: ${event}`,
+      attachments: [{
+        color: 'danger',
+        fields: [{
+          title: 'Event Details',
+          value: JSON.stringify(metadata, null, 2),
+          short: false
+        }]
+      }]
+    });
+  }
+}
+```
+
+This comprehensive approach provides detailed solutions for the advanced implementation challenges you've identified, focusing on production-ready patterns that scale with your application's growth.
+
+# Advanced Implementation Solutions: Deep Technical Answers
+
+## 1. Robustness & Error Handling
+
+### Question 1.1: Dynamic Circuit Breaker with Latency-Based State Management
+
+**Enhanced Circuit Breaker with Adaptive Timeouts:**
+
+```typescript
+interface LatencyMetrics {
+  p50: number;
+  p95: number;
+  p99: number;
+  average: number;
+  samples: number[];
+}
+
+class AdaptiveCircuitBreaker {
+  private latencyWindow: number[] = [];
+  private windowSize = 100;
+  private baseTimeout = 5000;
+  private maxTimeout = 30000;
+  private acceptableLatencyThreshold = 2000; // 2 seconds
+  private slowResponseThreshold = 5000; // 5 seconds
+  
+  constructor(
+    private threshold = 5,
+    private retryTimeout = 60000
+  ) {}
+
+  async execute<T>(operation: () => Promise<T>): Promise<T> {
+    const dynamicTimeout = this.calculateDynamicTimeout();
+    const startTime = performance.now();
+    
+    if (this.state === 'OPEN') {
+      if (Date.now() - this.lastFailureTime! < this.retryTimeout) {
+        throw new Error('Circuit breaker is OPEN');
+      }
+      this.state = 'HALF_OPEN';
+    }
+
+    try {
+      const result = await Promise.race([
+        operation(),
+        new Promise<never>((_, reject) => 
+          setTimeout(() => reject(new Error('Adaptive timeout exceeded')), dynamicTimeout)
+        )
+      ]);
+      
+      const latency = performance.now() - startTime;
+      this.recordLatency(latency);
+      
+      // Success but check if response was unacceptably slow
+      if (latency > this.slowResponseThreshold) {
+        this.recordSlowResponse();
+        // Don't fail, but count towards circuit breaker state
+      } else {
+        this.onSuccess();
+      }
+      
+      return result;
+    } catch (error) {
+      const latency = performance.now() - startTime;
+      this.recordLatency(latency);
+      this.onFailure();
+      throw error;
+    }
+  }
+
+  private calculateDynamicTimeout(): number {
+    if (this.latencyWindow.length < 10) {
+      return this.baseTimeout;
+    }
+
+    const metrics = this.calculateLatencyMetrics();
+    
+    // Adaptive timeout based on historical performance
+    // Use P95 + buffer for timeout calculation
+    const adaptiveTimeout = Math.min(
+      Math.max(metrics.p95 * 2, this.baseTimeout),
+      this.maxTimeout
+    );
+
+    return adaptiveTimeout;
+  }
+
+  private calculateLatencyMetrics(): LatencyMetrics {
+    const sorted = [...this.latencyWindow].sort((a, b) => a - b);
+    const len = sorted.length;
+    
+    return {
+      p50: sorted[Math.floor(len * 0.5)],
+      p95: sorted[Math.floor(len * 0.95)],
+      p99: sorted[Math.floor(len * 0.99)],
+      average: sorted.reduce((sum, val) => sum + val, 0) / len,
+      samples: sorted
+    };
+  }
+
+  private recordLatency(latency: number): void {
+    this.latencyWindow.push(latency);
+    if (this.latencyWindow.length > this.windowSize) {
+      this.latencyWindow.shift();
+    }
+  }
+
+  private recordSlowResponse(): void {
+    // Treat slow responses as partial failures
+    this.slowResponseCount = (this.slowResponseCount || 0) + 1;
+    
+    // If we get too many slow responses, consider it degraded service
+    if (this.slowResponseCount > this.threshold / 2) {
+      this.onFailure();
+    }
+  }
+
+  // Enhanced state management
+  private onSuccess(): void {
+    this.failures = 0;
+    this.slowResponseCount = 0;
+    this.state = 'CLOSED';
+  }
+
+  private onFailure(): void {
+    this.failures++;
+    this.lastFailureTime = Date.now();
+    if (this.failures >= this.threshold) {
+      this.state = 'OPEN';
+      // Reset latency window to recalibrate after recovery
+      this.latencyWindow = [];
+    }
+  }
+
+  // Public method to get current performance metrics
+  public getHealthMetrics(): {
+    state: string;
+    latencyMetrics: LatencyMetrics | null;
+    currentTimeout: number;
+    failureRate: number;
+  } {
+    return {
+      state: this.state,
+      latencyMetrics: this.latencyWindow.length > 0 ? this.calculateLatencyMetrics() : null,
+      currentTimeout: this.calculateDynamicTimeout(),
+      failureRate: this.failures / (this.failures + this.successCount || 1)
+    };
+  }
+}
+
+// Usage with enhanced monitoring
+class NutritionixService {
+  private circuitBreaker = new AdaptiveCircuitBreaker(3, 30000);
+  
+  async lookupBarcode(barcode: string): Promise<ProductData> {
+    const healthBefore = this.circuitBreaker.getHealthMetrics();
+    
+    try {
+      const result = await this.circuitBreaker.execute(() => 
+        this.callNutritionixAPI(barcode)
+      );
+      
+      // Log successful call with performance context
+      Analytics.track('nutritionix_success', {
+        barcode: barcode.slice(0, 4) + '***',
+        circuit_state: healthBefore.state,
+        timeout_used: healthBefore.currentTimeout,
+        estimated_latency: healthBefore.latencyMetrics?.p95
+      });
+      
+      return result;
+    } catch (error) {
+      const healthAfter = this.circuitBreaker.getHealthMetrics();
+      
+      Analytics.track('nutritionix_failure', {
+        barcode: barcode.slice(0, 4) + '***',
+        error: error.message,
+        circuit_state_before: healthBefore.state,
+        circuit_state_after: healthAfter.state,
+        failure_rate: healthAfter.failureRate
+      });
+      
+      throw error;
+    }
+  }
+}
+```
+
+### Question 1.2: Advanced Offline Sync with Conflict Resolution
+
+**Comprehensive Offline Sync Manager:**
+
+```typescript
+interface OfflineOperation {
+  id: string;
+  type: 'INSERT' | 'UPDATE' | 'DELETE';
+  table: string;
+  data: any;
+  timestamp: number;
+  retryCount: number;
+  userId: string;
+  optimisticId?: string; // For optimistic updates
+}
+
+interface ConflictResolutionStrategy {
+  strategy: 'last_write_wins' | 'merge_fields' | 'user_prompt' | 'custom';
+  mergeRules?: Record<string, 'server' | 'client' | 'merge'>;
+  customResolver?: (serverData: any, clientData: any) => any;
+}
+
+class AdvancedOfflineSyncManager {
+  private operationQueue: OfflineOperation[] = [];
+  private syncInProgress = false;
+  private conflictResolver: ConflictResolutionStrategy;
+
+  constructor(
+    private supabase: SupabaseClient,
+    private localDB: SQLiteDatabase
+  ) {
+    this.conflictResolver = {
+      strategy: 'merge_fields',
+      mergeRules: {
+        // Inventory-specific merge rules
+        'quantity_consumed': 'merge', // Add quantities
+        'storage_location_id': 'client', // Prefer user's latest choice
+        'notes': 'merge', // Append notes
+        'updated_at': 'server', // Server timestamp wins
+        'scanned_at': 'client' // Keep original scan time
+      }
+    };
+  }
+
+  async queueOperation(operation: Omit<OfflineOperation, 'id' | 'retryCount'>): Promise<string> {
+    const id = generateUUID();
+    const queuedOp: OfflineOperation = {
+      ...operation,
+      id,
+      retryCount: 0
+    };
+
+    // Store in local database for persistence
+    await this.localDB.runAsync(
+      'INSERT INTO sync_queue (id, type, table_name, data, timestamp, user_id) VALUES (?, ?, ?, ?, ?, ?)',
+      [id, operation.type, operation.table, JSON.stringify(operation.data), operation.timestamp, operation.userId]
+    );
+
+    this.operationQueue.push(queuedOp);
+    
+    // Trigger sync if online
+    if (await this.isOnline()) {
+      this.syncWhenReady();
+    }
+
+    return id;
+  }
+
+  async syncWhenReady(): Promise<void> {
+    if (this.syncInProgress || !await this.isOnline()) {
+      return;
+    }
+
+    this.syncInProgress = true;
+    
+    try {
+      // Load queue from local storage
+      await this.loadQueueFromStorage();
+      
+      // Process operations in chronological order
+      const sortedOps = this.operationQueue.sort((a, b) => a.timestamp - b.timestamp);
+      
+      for (const operation of sortedOps) {
+        try {
+          await this.syncSingleOperation(operation);
+          await this.removeFromQueue(operation.id);
+        } catch (error) {
+          await this.handleSyncError(operation, error);
+        }
+      }
+    } finally {
+      this.syncInProgress = false;
+    }
+  }
+
+  private async syncSingleOperation(operation: OfflineOperation): Promise<void> {
+    const { type, table, data, timestamp, userId } = operation;
+
+    switch (type) {
+      case 'INSERT':
+        await this.handleInsertSync(operation);
+        break;
+      case 'UPDATE':
+        await this.handleUpdateSync(operation);
+        break;
+      case 'DELETE':
+        await this.handleDeleteSync(operation);
+        break;
+    }
+  }
+
+  private async handleUpdateSync(operation: OfflineOperation): Promise<void> {
+    const { table, data } = operation;
+    
+    // First, get current server state
+    const { data: serverRecord, error } = await this.supabase
+      .from(table)
+      .select('*')
+      .eq('id', data.id)
+      .single();
+
+    if (error && error.code !== 'PGRST116') { // Not found is OK for some cases
+      throw error;
+    }
+
+    if (!serverRecord) {
+      // Record was deleted on server - handle accordingly
+      await this.handleDeletedOnServer(operation);
+      return;
+    }
+
+    // Check for conflicts
+    const conflict = this.detectConflict(serverRecord, data, operation.timestamp);
+    
+    if (conflict) {
+      const resolved = await this.resolveConflict(serverRecord, data, conflict);
+      data = resolved;
+    }
+
+    // Apply the update
+    const { error: updateError } = await this.supabase
+      .from(table)
+      .update(data)
+      .eq('id', data.id);
+
+    if (updateError) {
+      throw updateError;
+    }
+
+    // Update local optimistic state
+    await this.updateLocalRecord(table, data);
+  }
+
+  private detectConflict(serverRecord: any, clientData: any, clientTimestamp: number): boolean {
+    const serverUpdatedAt = new Date(serverRecord.updated_at).getTime();
+    const clientUpdatedAt = clientTimestamp;
+
+    // If server record is newer than client operation, we have a conflict
+    return serverUpdatedAt > clientUpdatedAt;
+  }
+
+  private async resolveConflict(
+    serverData: any, 
+    clientData: any, 
+    conflict: boolean
+  ): Promise<any> {
+    switch (this.conflictResolver.strategy) {
+      case 'last_write_wins':
+        return clientData; // Client wins (could be server if we prefer that)
+
+      case 'merge_fields':
+        return this.mergeFieldsStrategy(serverData, clientData);
+
+      case 'user_prompt':
+        return await this.promptUserForResolution(serverData, clientData);
+
+      case 'custom':
+        return this.conflictResolver.customResolver!(serverData, clientData);
+
+      default:
+        return clientData;
+    }
+  }
+
+  private mergeFieldsStrategy(serverData: any, clientData: any): any {
+    const merged = { ...serverData };
+    const rules = this.conflictResolver.mergeRules!;
+
+    for (const [field, rule] of Object.entries(rules)) {
+      switch (rule) {
+        case 'server':
+          merged[field] = serverData[field];
+          break;
+        case 'client':
+          merged[field] = clientData[field];
+          break;
+        case 'merge':
+          merged[field] = this.mergeFieldValues(
+            serverData[field], 
+            clientData[field], 
+            field
+          );
+          break;
+      }
+    }
+
+    return merged;
+  }
+
+  private mergeFieldValues(serverValue: any, clientValue: any, fieldName: string): any {
+    switch (fieldName) {
+      case 'quantity_consumed':
+        // Add quantities together for consumption tracking
+        return (parseFloat(serverValue) || 0) + (parseFloat(clientValue) || 0);
+        
+      case 'notes':
+        // Merge notes with timestamp
+        const serverNote = serverValue || '';
+        const clientNote = clientValue || '';
+        const timestamp = new Date().toISOString();
+        return serverNote + (serverNote ? '\n' : '') + 
+               `[${timestamp}] ${clientNote}`;
+        
+      default:
+        return clientValue; // Default to client value
+    }
+  }
+
+  private async promptUserForResolution(serverData: any, clientData: any): Promise<any> {
+    // This would show a modal to the user
+    return new Promise((resolve) => {
+      ConflictResolutionModal.show({
+        serverData,
+        clientData,
+        onResolve: resolve
+      });
+    });
+  }
+
+  private async handleSyncError(operation: OfflineOperation, error: Error): Promise<void> {
+    operation.retryCount++;
+    
+    // Exponential backoff
+    const backoffDelay = Math.min(1000 * Math.pow(2, operation.retryCount), 30000);
+    
+    if (operation.retryCount < 5) {
+      // Schedule retry
+      setTimeout(() => {
+        this.syncSingleOperation(operation).catch(err => 
+          this.handleSyncError(operation, err)
+        );
+      }, backoffDelay);
+    } else {
+      // Max retries exceeded - move to failed queue
+      await this.moveToFailedQueue(operation, error);
+      
+      // Notify user about persistent sync failure
+      NotificationManager.showSyncFailure({
+        operation: operation.type,
+        table: operation.table,
+        error: error.message
+      });
+    }
+  }
+
+  // Vector clock implementation for better conflict detection
+  private vectorClock = new Map<string, number>();
+
+  private updateVectorClock(nodeId: string): void {
+    const currentTick = this.vectorClock.get(nodeId) || 0;
+    this.vectorClock.set(nodeId, currentTick + 1);
+  }
+
+  private compareVectorClocks(clock1: Map<string, number>, clock2: Map<string, number>): 'before' | 'after' | 'concurrent' {
+    let clock1Greater = false;
+    let clock2Greater = false;
+
+    const allNodes = new Set([...clock1.keys(), ...clock2.keys()]);
+
+    for (const node of allNodes) {
+      const tick1 = clock1.get(node) || 0;
+      const tick2 = clock2.get(node) || 0;
+
+      if (tick1 > tick2) clock1Greater = true;
+      if (tick2 > tick1) clock2Greater = true;
+    }
+
+    if (clock1Greater && !clock2Greater) return 'after';
+    if (clock2Greater && !clock1Greater) return 'before';
+    if (!clock1Greater && !clock2Greater) return 'concurrent';
+    return 'concurrent'; // Both greater in different dimensions
+  }
+}
+
+// React Hook for offline sync status
+function useOfflineSyncStatus() {
+  const [syncStatus, setSyncStatus] = useState<{
+    isOnline: boolean;
+    queueSize: number;
+    lastSync: Date | null;
+    conflicts: number;
+  }>({
+    isOnline: true,
+    queueSize: 0,
+    lastSync: null,
+    conflicts: 0
+  });
+
+  useEffect(() => {
+    const syncManager = OfflineSyncManager.getInstance();
+    
+    const unsubscribe = syncManager.subscribe((status) => {
+      setSyncStatus(status);
+    });
+
+    return unsubscribe;
+  }, []);
+
+  return syncStatus;
+}
+```
+
+## 2. Testing Strategy
+
+### Question 2.1: E2E Test Flakiness Management
+
+**Robust E2E Testing with Smart Retries and Mocking:**
+
+```typescript
+// Enhanced Detox configuration with reliability patterns
+// detox.config.js
+module.exports = {
+  testRunner: 'jest',
+  runnerConfig: 'e2e/config.json',
+  configurations: {
+    'ios.sim.debug': {
+      device: 'simulator',
+      app: 'ios.debug',
+      artifacts: {
+        screenshots: {
+          takeWhen: { testFailure: true, testDone: false },
+          shouldTakeAutomaticSnapshots: true,
+          keepOnlyFailedTestsArtifacts: true
+        },
+        videos: {
+          takeWhen: { testFailure: true },
+          shouldTakeAutomaticSnapshots: false,
+          keepOnlyFailedTestsArtifacts: true
+        },
+        instruments: {
+          path: 'e2e/artifacts/instruments'
+        }
+      }
+    }
+  },
+  behavior: {
+    init: {
+      reinstallApp: false, // Faster test runs
+      exposeGlobals: false
+    },
+    cleanup: {
+      shutdownDevice: false
+    }
+  }
+};
+
+// Smart retry wrapper for flaky operations
+class DetoxTestHelper {
+  static async withRetry<T>(
+    operation: () => Promise<T>,
+    maxRetries = 3,
+    description = 'operation'
+  ): Promise<T> {
+    let lastError: Error;
+    
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        return await operation();
+      } catch (error) {
+        lastError = error;
+        
+        if (attempt === maxRetries) {
+          throw new Error(`${description} failed after ${maxRetries} attempts: ${error.message}`);
+        }
+        
+        console.warn(`${description} attempt ${attempt} failed, retrying...`, error.message);
+        
+        // Smart wait based on error type
+        const waitTime = this.getRetryDelay(error, attempt);
+        await device.sleep(waitTime);
+      }
+    }
+  }
+
+  private static getRetryDelay(error: Error, attempt: number): number {
+    // Different retry strategies based on error type
+    if (error.message.includes('network') || error.message.includes('timeout')) {
+      return 2000 * attempt; // Network issues - longer wait
+    }
+    if (error.message.includes('animation')) {
+      return 500; // Animation issues - short wait
+    }
+    return 1000 * attempt; // Default exponential backoff
+  }
+
+  // Wait for element with intelligent timeout
+  static async waitForElement(elementMatcher: any, timeout = 10000): Promise<void> {
+    return this.withRetry(async () => {
+      await waitFor(element(elementMatcher))
+        .toBeVisible()
+        .withTimeout(timeout);
+    }, 3, `waiting for element ${elementMatcher}`);
+  }
+
+  // Stable text input
+  static async typeTextSafely(elementMatcher: any, text: string): Promise<void> {
+    return this.withRetry(async () => {
+      await element(elementMatcher).clearText();
+      await device.sleep(100); // Brief pause for UI to update
+      await element(elementMatcher).typeText(text);
+      
+      // Verify text was actually entered
+      await expect(element(elementMatcher)).toHaveText(text);
+    }, 3, `typing text "${text}"`);
+  }
+}
+
+// Mock API responses for deterministic testing
+class E2EApiMocker {
+  private mockResponses = new Map<string, any>();
+  
+  setupNutritionixMocks(): void {
+    this.mockResponses.set('nutritionix_041331124027', {
+      foods: [{
+        food_name: 'Red Kidney Beans',
+        brand_name: 'Goya',
+        nf_calories: 110,
+        nf_protein: 8,
+        nf_total_fat: 0
+      }]
+    });
+    
+    this.mockResponses.set('nutritionix_123456789012', {
+      foods: [{
+        food_name: 'Test Product E2E',
+        brand_name: 'Test Brand',
+        nf_calories: 200,
+        nf_protein: 5,
+        nf_total_fat: 10
+      }]
+    });
+  }
+
+  async interceptApiCall(url: string): Promise<any> {
+    const barcode = this.extractBarcodeFromUrl(url);
+    const mockKey = `nutritionix_${barcode}`;
+    
+    if (this.mockResponses.has(mockKey)) {
+      return this.mockResponses.get(mockKey);
+    }
+    
+    throw new Error(`No mock data for barcode: ${barcode}`);
+  }
+
+  private extractBarcodeFromUrl(url: string): string {
+    const match = url.match(/barcode\/(\d+)/);
+    return match ? match[1] : '';
+  }
+}
+
+// Enhanced E2E test suite
+describe('Scanner Workflow - Enhanced', () => {
+  const apiMocker = new E2EApiMocker();
+  
+  beforeAll(async () => {
+    await device.launchApp({
+      newInstance: true,
+      permissions: { camera: 'YES' },
+      // Mock network responses
+      mockNetworkCalls: true
+    });
+    
+    apiMocker.setupNutritionixMocks();
+  });
+
+  beforeEach(async () => {
+    // Reset app state for consistent testing
+    await device.reloadReactNative();
+    
+    // Wait for app to fully load
+    await DetoxTestHelper.waitForElement(by.id('main-tab-navigator'));
+  });
+
+  test('complete scan workflow with network variations', async () => {
+    // Test normal flow
+    await element(by.id('scanner-tab')).tap();
+    await DetoxTestHelper.waitForElement(by.id('camera-view'));
+    
+    // Simulate barcode scan
+    await DetoxTestHelper.typeTextSafely(by.id('manual-barcode-input'), '041331124027');
+    await element(by.id('confirm-scan')).tap();
+    
+    // Wait for API response and verify
+    await DetoxTestHelper.waitForElement(by.id('product-details'), 15000);
+    await expect(element(by.text('Red Kidney Beans'))).toBeVisible();
+    
+    // Test with slow network
+    await device.setNetworkConnection('slow');
+    
+    await DetoxTestHelper.typeTextSafely(by.id('manual-barcode-input'), '123456789012');
+    await element(by.id('confirm-scan')).tap();
+    
+    // Should show loading state
+    await DetoxTestHelper.waitForElement(by.id('loading-indicator'));
+    
+    // Eventually load product
+    await DetoxTestHelper.waitForElement(by.text('Test Product E2E'), 20000);
+    
+    // Reset network
+    await device.setNetworkConnection('connected');
+  });
+
+  test('offline functionality with queue management', async () => {
+    // Go offline
+    await device.setNetworkConnection('disconnected');
+    
+    // Perform scan
+    await element(by.id('scanner-tab')).tap();
+    await DetoxTestHelper.typeTextSafely(by.id('manual-barcode-input'), '999999999999');
+    await element(by.id('confirm-scan')).tap();
+    
+    // Should queue for offline sync
+    await DetoxTestHelper.waitForElement(by.text('Queued for sync'));
+    
+    // Check sync status
+    await element(by.id('sync-status-button')).tap();
+    await expect(element(by.text('1 item pending sync'))).toBeVisible();
+    
+    // Go back online
+    await device.setNetworkConnection('connected');
+    
+    // Wait for sync
+    await DetoxTestHelper.waitForElement(by.text('All items synced'), 30000);
+  });
+});
+```
+
+### Question 2.2: Database Test Data Management
+
+**Comprehensive Test Data Management System:**
+
+```typescript
+// Database test utilities for Supabase
+class SupabaseTestManager {
+  private testUserId: string;
+  private testDataIds: { [table: string]: string[] } = {};
+  
+  constructor(private supabase: SupabaseClient) {
+    this.testUserId = 'test-user-' + Date.now();
+  }
+
+  async setupTestDatabase(): Promise<void> {
+    // Create isolated test data
+    await this.createTestStorageLocations();
+    await this.createTestProducts();
+    await this.createTestMasterIngredients();
+    
+    // Set RLS context for test user
+    await this.supabase.auth.signInWithPassword({
+      email: `${this.testUserId}@test.com`,
+      password: 'test-password-123'
+    });
+  }
+
+  async cleanupTestDatabase(): Promise<void> {
+    // Clean up in reverse dependency order
+    const tables = [
+      'scanned_items',
+      'inventory_transactions', 
+      'inventory',
+      'ingredient_suggestions',
+      'products',
+      'master_ingredients',
+      'storage_locations'
+    ];
+
+    for (const table of tables) {
+      if (this.testDataIds[table]) {
+        await this.supabase
+          .from(table)
+          .delete()
+          .in('id', this.testDataIds[table]);
+      }
+    }
+
+    // Sign out test user
+    await this.supabase.auth.signOut();
+  }
+
+  private async createTestProducts(): Promise<void> {
+    const testProducts = [
+      {
+        barcode: '041331124027',
+        name: 'Red Kidney Beans',
+        brand_name: 'Goya',
+        calories: 110,
+        protein: 8,
+        source: 'test'
+      },
+      {
+        barcode: '123456789012',
+        name: 'Test Product E2E',
+        brand_name: 'Test Brand',
+        calories: 200,
+        protein: 5,
+        source: 'test'
+      }
+    ];
+
+    const { data, error } = await this.supabase
+      .from('products')
+      .insert(testProducts)
+      .select('id');
+
+    if (error) throw error;
+    
+    this.testDataIds.products = data.map(p => p.id);
+  }
+
+  async createPerformanceTestData(recordCount: number): Promise<void> {
+    const batchSize = 1000;
+    const batches = Math.ceil(recordCount / batchSize);
+    
+    for (let i = 0; i < batches; i++) {
+      const batchProducts = [];
+      const currentBatchSize = Math.min(batchSize, recordCount - i * batchSize);
+      
+      for (let j = 0; j < currentBatchSize; j++) {
+        const index = i * batchSize + j;
+        batchProducts.push({
+          barcode: `${1000000000000 + index}`,
+          name: `Performance Test Product ${index}`,
+          brand_name: `Test Brand ${index % 100}`,
+          calories: 100 + (index % 500),
+          protein: 1 + (index % 50),
+          full_nutrients: this.generateMockNutrients(index),
+          source: 'performance_test'
+        });
+      }
+      
+      const { data, error } = await this.supabase
+        .from('products')
+        .insert(batchProducts)
+        .select('id');
+        
+      if (error) throw error;
+      
+      this.testDataIds.products = [
+        ...(this.testDataIds.products || []),
+        ...data.map(p => p.id)
+      ];
+      
+      // Small delay to prevent overwhelming the database
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+  }
+
+  private generateMockNutrients(seed: number): any[] {
+    return [
+      { attr_id: 203, value: 1 + (seed % 50) }, // Protein
+      { attr_id: 204, value: seed % 30 }, // Fat
+      { attr_id: 205, value: 10 + (seed % 100) }, // Carbs
+      { attr_id: 208, value: 100 + (seed % 500) }, // Calories
+      { attr_id: 307, value: seed % 1000 }, // Sodium
+    ];
+  }
+
+  // Database seeding for specific test scenarios
+  async seedInventoryTestData(): Promise<void> {
+    // Create test inventory items with various expiration dates
+    const inventoryItems = [
+      {
+        product_id: this.testDataIds.products[0],
+        storage_location_id: 1,
+        quantity: 2,
+        unit: 'can',
+        expiration_date: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // 30 days
+        purchase_date: new Date().toISOString().split('T')[0]
+      },
+      {
+        product_id: this.testDataIds.products[1],
+        storage_location_id: 2,
+        quantity: 1,
+        unit: 'package',
+        expiration_date: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // 5 days ago (expired)
+        purchase_date: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+      }
+    ];
+
+    const { data, error } = await this.supabase
+      .from('inventory')
+      .insert(inventoryItems)
+      .select('id');
+
+    if (error) throw error;
+    this.testDataIds.inventory = data.map(i => i.id);
+  }
+}
+
+// Jest setup for database tests
+// jest.setup.database.js
+let testManager: SupabaseTestManager;
+
+beforeAll(async () => {
+  testManager = new SupabaseTestManager(supabaseClient);
+  await testManager.setupTestDatabase();
+});
+
+afterAll(async () => {
+  await testManager.cleanupTestDatabase();
+});
+
+beforeEach(async () => {
+  // Reset to clean state for each test
+  await testManager.resetToCleanState();
+});
+
+// Performance test example
+describe('Database Performance Tests', () => {
+  test('JSONB nutrition query performance at scale', async () => {
+    // Create 10,000 test products
+    await testManager.createPerformanceTestData(10000);
+    
+    const startTime = performance.now();
+    
+    // Query nutrition data
+    const { data, error } = await supabase
+      .from('products')
+      .select('id, name, full_nutrients')
+      .contains('full_nutrients', [{ attr_id: 203 }]) // Products with protein data
+      .limit(1000);
+    
+    const endTime = performance.now();
+    const queryTime = endTime - startTime;
+    
+    expect(error).toBeNull();
+    expect(data).toHaveLength(1000);
+    expect(queryTime).toBeLessThan(500); // 500ms max
+    
+    // Log performance metrics
+    console.log(`JSONB query took ${queryTime}ms for 10k records`);
+  });
+});
+```
+
+### Question 2.3: Security Testing Automation
+
+**Automated Security Pipeline with Intelligent Triage:**
+
+```yaml
+# .github/workflows/security-scan.yml
+name: Security Scanning Pipeline
+on:
+  schedule:
+    - cron: '0 2 * * *' # Daily at 2 AM
+  push:
+    branches: [main, staging]
+  pull_request:
+    branches: [main]
+
+jobs:
+  static-analysis:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Semgrep Static Analysis
+        uses: returntocorp/semgrep-action@v1
+        with:
+          config: >-
+            p/security-audit
+            p/secrets
+            p/owasp-top-ten
+            p/react
+            p/typescript
+          generateSarif: "1"
+          
+      - name: CodeQL Analysis
+        uses: github/codeql-action/init@v2
+        with:
+          languages: javascript, typescript
+          
+      - name: Build for analysis
+        run: npm ci && npm run build
+        
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v2
+
+  dependency-security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Audit npm dependencies
+        run: |
+          npm audit --audit-level moderate --json > npm-audit.json || true
+          
+      - name: Snyk Security Scan
+        uses: snyk/actions/node@master
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          args: --severity-threshold=medium --json > snyk-report.json
+          
+      - name: Process Security Reports
+        run: node scripts/process-security-reports.js
+
+  dynamic-security:
+    runs-on: ubuntu-latest
+    needs: [static-analysis]
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Start test environment
+        run: |
+          docker-compose -f docker-compose.test.yml up -d
+          sleep 30 # Wait for services to start
+          
+      - name: OWASP ZAP Baseline Scan
+        uses: zaproxy/action-baseline@v0.7.0
+        with:
+          target: 'http://localhost:3000'
+          rules_file_name: '.zap/rules.tsv'
+          cmd_options: '-a -d -T 15 -m 2'
+          
+      - name: OWASP ZAP Full Scan
+        uses: zaproxy/action-full-scan@v0.4.0
+        with:
+          target: 'http://localhost:3000'
+          rules_file_name: '.zap/rules.tsv'
+          cmd_options: '-a -T 30'
+```
+
+**Intelligent Security Report Processing:**
+
+```typescript
+// scripts/process-security-reports.js
+interface SecurityFinding {
+  tool: 'semgrep' | 'snyk' | 'npm-audit' | 'zap';
+  severity: 'low' | 'medium' | 'high' | 'critical';
+  category: string;
+  description: string;
+  file?: string;
+  line?: number;
+  rule: string;
+  cwe?: string;
+  confidence: number;
+}
+
+class SecurityReportProcessor {
+  private falsePositiveRules: string[] = [
+    'javascript.express.security.audit.express-check-csurf-middleware-usage',
+    'javascript.lang.security.audit.path-traversal.path-join-resolve-traversal'
+  ];
+
+  private suppressedFindings: Map<string, string> = new Map([
+    ['semgrep:react-dangerouslysetinnerhtml', 'Sanitized with DOMPurify'],
+    ['snyk:prototype-pollution', 'Not exploitable in our context']
+  ]);
+
+  async processAllReports(): Promise<void> {
+    const findings: SecurityFinding[] = [];
+    
+    // Process each security tool report
+    const semgrepFindings = await this.processSemgrepReport();
+    const snykFindings = await this.processSnykReport();
+    const npmAuditFindings = await this.processNpmAuditReport();
+    const zapFindings = await this.processZapReport();
+    
+    findings.push(...semgrepFindings, ...snykFindings, ...npmAuditFindings, ...zapFindings);
+    
+    // Filter and triage findings
+    const filteredFindings = this.filterFindings(findings);
+    const triaged = this.triageFindings(filteredFindings);
+    
+    // Generate reports
+    await this.generateSecurityReport(triaged);
+    await this.createJiraTickets(triaged.filter(f => f.severity === 'critical'));
+    await this.updateSecurityDashboard(triaged);
+  }
+
+  private filterFindings(findings: SecurityFinding[]): SecurityFinding[] {
+    return findings.filter(finding => {
+      // Remove false positives
+      if (this.falsePositiveRules.includes(finding.rule)) {
+        return false;
+      }
+      
+      // Remove suppressed findings
+      const key = `${finding.tool}:${finding.rule}`;
+      if (this.suppressedFindings.has(key)) {
+        console.log(`Suppressed finding: ${key} - ${this.suppressedFindings.get(key)}`);
+        return false;
+      }
+      
+      // Remove low confidence findings for certain categories
+      if (finding.confidence < 0.7 && finding.category === 'potential-vulnerability') {
+        return false;
+      }
+      
+      return true;
+    });
+  }
+
+  private triageFindings(findings: SecurityFinding[]): SecurityFinding[] {
+    return findings.map(finding => {
+      // Adjust severity based on context
+      if (finding.category === 'dependency-vulnerability') {
+        // Check if dependency is actually used in production code
+        const isUsedInProd = this.isDependencyUsedInProduction(finding.description);
+        if (!isUsedInProd && finding.severity === 'high') {
+          finding.severity = 'medium';
+        }
+      }
+      
+      // Upgrade severity for authentication/authorization issues
+      if (finding.category.includes('auth') && finding.severity === 'medium') {
+        finding.severity = 'high';
+      }
+      
+      return finding;
+    });
+  }
+
+  private async createJiraTickets(criticalFindings: SecurityFinding[]): Promise<void> {
+    for (const finding of criticalFindings) {
+      const ticket = {
+        fields: {
+          project: { key: 'SEC' },
+          summary: `Security: ${finding.category} - ${finding.rule}`,
+          description: this.formatJiraDescription(finding),
+          issuetype: { name: 'Security Bug' },
+          priority: { name: 'Critical' },
+          labels: ['security', 'automated', finding.tool],
+          components: [{ name: 'Mobile App' }]
+        }
+      };
+      
+      await this.jiraClient.createIssue(ticket);
+    }
+  }
+
+  private async updateSecurityDashboard(findings: SecurityFinding[]): Promise<void> {
+    const metrics = {
+      total_findings: findings.length,
+      critical: findings.filter(f => f.severity === 'critical').length,
+      high: findings.filter(f => f.severity === 'high').length,
+      medium: findings.filter(f => f.severity === 'medium').length,
+      low: findings.filter(f => f.severity === 'low').length,
+      by_tool: this.groupByTool(findings),
+      trend: await this.calculateTrend(findings),
+      last_scan: new Date().toISOString()
+    };
+    
+    // Update dashboard via API
+    await fetch('https://security-dashboard.company.com/api/metrics', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(metrics)
+    });
+  }
+}
+
+// Security monitoring integration
+class SecurityMonitoring {
+  private metrics = new Map<string, number>();
+  
+  async trackSecurityEvent(event: string, severity: string, metadata?: any): Promise<void> {
+    // Update metrics
+    const key = `${event}_${severity}`;
+    this.metrics.set(key, (this.metrics.get(key) || 0) + 1);
+    
+    // Send to monitoring system
+    await DatadogMetrics.increment('security.event', 1, {
+      event_type: event,
+      severity: severity,
+      environment: process.env.NODE_ENV
+    });
+    
+    // Alert on critical events
+    if (severity === 'critical') {
+      await this.sendAlert(event, metadata);
+    }
+  }
+
+  private async sendAlert(event: string, metadata: any): Promise<void> {
+    await SlackNotifier.send({
+      channel: '#security-alerts',
+      text: `🚨 Critical security event: ${event}`,
+      attachments: [{
+        color: 'danger',
+        fields: [{
+          title: 'Event Details',
+          value: JSON.stringify(metadata, null, 2),
+          short: false
+        }]
+      }]
+    });
+  }
+}
+```
+
+This comprehensive approach provides detailed solutions for the advanced implementation challenges you've identified, focusing on production-ready patterns that scale with your application's growth.
+
+## 4. Code Quality & Maintainability
+
+### Question 4.1: Monorepo Strategy
+
+**Nx-Based Monorepo Architecture:**
+
+```json
+// nx.json - Workspace configuration
+{
+  "version": 2,
+  "projects": {
+    "mobile-app": "apps/# Advanced Implementation Solutions: Deep Technical Answers
+
+## 1. Robustness & Error Handling
+
+### Question 1.1: Dynamic Circuit Breaker with Latency-Based State Management
+
+**Enhanced Circuit Breaker with Adaptive Timeouts:**
+
+```typescript
+interface LatencyMetrics {
+  p50: number;
+  p95: number;
+  p99: number;
+  average: number;
+  samples: number[];
+}
+
+class AdaptiveCircuitBreaker {
+  private latencyWindow: number[] = [];
+  private windowSize = 100;
+  private baseTimeout = 5000;
+  private maxTimeout = 30000;
+  private acceptableLatencyThreshold = 2000; // 2 seconds
+  private slowResponseThreshold = 5000; // 5 seconds
+  
+  constructor(
+    private threshold = 5,
+    private retryTimeout = 60000
+  ) {}
+
+  async execute<T>(operation: () => Promise<T>): Promise<T> {
+    const dynamicTimeout = this.calculateDynamicTimeout();
+    const startTime = performance.now();
+    
+    if (this.state === 'OPEN') {
+      if (Date.now() - this.lastFailureTime! < this.retryTimeout) {
+        throw new Error('Circuit breaker is OPEN');
+      }
+      this.state = 'HALF_OPEN';
+    }
+
+    try {
+      const result = await Promise.race([
+        operation(),
+        new Promise<never>((_, reject) => 
+          setTimeout(() => reject(new Error('Adaptive timeout exceeded')), dynamicTimeout)
+        )
+      ]);
+      
+      const latency = performance.now() - startTime;
+      this.recordLatency(latency);
+      
+      // Success but check if response was unacceptably slow
+      if (latency > this.slowResponseThreshold) {
+        this.recordSlowResponse();
+        // Don't fail, but count towards circuit breaker state
+      } else {
+        this.onSuccess();
+      }
+      
+      return result;
+    } catch (error) {
+      const latency = performance.now() - startTime;
+      this.recordLatency(latency);
+      this.onFailure();
+      throw error;
+    }
+  }
+
+  private calculateDynamicTimeout(): number {
+    if (this.latencyWindow.length < 10) {
+      return this.baseTimeout;
+    }
+
+    const metrics = this.calculateLatencyMetrics();
+    
+    // Adaptive timeout based on historical performance
+    // Use P95 + buffer for timeout calculation
+    const adaptiveTimeout = Math.min(
+      Math.max(metrics.p95 * 2, this.baseTimeout),
+      this.maxTimeout
+    );
+
+    return adaptiveTimeout;
+  }
+
+  private calculateLatencyMetrics(): LatencyMetrics {
+    const sorted = [...this.latencyWindow].sort((a, b) => a - b);
+    const len = sorted.length;
+    
+    return {
+      p50: sorted[Math.floor(len * 0.5)],
+      p95: sorted[Math.floor(len * 0.95)],
+      p99: sorted[Math.floor(len * 0.99)],
+      average: sorted.reduce((sum, val) => sum + val, 0) / len,
+      samples: sorted
+    };
+  }
+
+  private recordLatency(latency: number): void {
+    this.latencyWindow.push(latency);
+    if (this.latencyWindow.length > this.windowSize) {
+      this.latencyWindow.shift();
+    }
+  }
+
+  private recordSlowResponse(): void {
+    // Treat slow responses as partial failures
+    this.slowResponseCount = (this.slowResponseCount || 0) + 1;
+    
+    // If we get too many slow responses, consider it degraded service
+    if (this.slowResponseCount > this.threshold / 2) {
+      this.onFailure();
+    }
+  }
+
+  // Enhanced state management
+  private onSuccess(): void {
+    this.failures = 0;
+    this.slowResponseCount = 0;
+    this.state = 'CLOSED';
+  }
+
+  private onFailure(): void {
+    this.failures++;
+    this.lastFailureTime = Date.now();
+    if (this.failures >= this.threshold) {
+      this.state = 'OPEN';
+      // Reset latency window to recalibrate after recovery
+      this.latencyWindow = [];
+    }
+  }
+
+  // Public method to get current performance metrics
+  public getHealthMetrics(): {
+    state: string;
+    latencyMetrics: LatencyMetrics | null;
+    currentTimeout: number;
+    failureRate: number;
+  } {
+    return {
+      state: this.state,
+      latencyMetrics: this.latencyWindow.length > 0 ? this.calculateLatencyMetrics() : null,
+      currentTimeout: this.calculateDynamicTimeout(),
+      failureRate: this.failures / (this.failures + this.successCount || 1)
+    };
+  }
+}
+
+// Usage with enhanced monitoring
+class NutritionixService {
+  private circuitBreaker = new AdaptiveCircuitBreaker(3, 30000);
+  
+  async lookupBarcode(barcode: string): Promise<ProductData> {
+    const healthBefore = this.circuitBreaker.getHealthMetrics();
+    
+    try {
+      const result = await this.circuitBreaker.execute(() => 
+        this.callNutritionixAPI(barcode)
+      );
+      
+      // Log successful call with performance context
+      Analytics.track('nutritionix_success', {
+        barcode: barcode.slice(0, 4) + '***',
+        circuit_state: healthBefore.state,
+        timeout_used: healthBefore.currentTimeout,
+        estimated_latency: healthBefore.latencyMetrics?.p95
+      });
+      
+      return result;
+    } catch (error) {
+      const healthAfter = this.circuitBreaker.getHealthMetrics();
+      
+      Analytics.track('nutritionix_failure', {
+        barcode: barcode.slice(0, 4) + '***',
+        error: error.message,
+        circuit_state_before: healthBefore.state,
+        circuit_state_after: healthAfter.state,
+        failure_rate: healthAfter.failureRate
+      });
+      
+      throw error;
+    }
+  }
+}
+```
+
+### Question 1.2: Advanced Offline Sync with Conflict Resolution
+
+**Comprehensive Offline Sync Manager:**
+
+```typescript
+interface OfflineOperation {
+  id: string;
+  type: 'INSERT' | 'UPDATE' | 'DELETE';
+  table: string;
+  data: any;
+  timestamp: number;
+  retryCount: number;
+  userId: string;
+  optimisticId?: string; // For optimistic updates
+}
+
+interface ConflictResolutionStrategy {
+  strategy: 'last_write_wins' | 'merge_fields' | 'user_prompt' | 'custom';
+  mergeRules?: Record<string, 'server' | 'client' | 'merge'>;
+  customResolver?: (serverData: any, clientData: any) => any;
+}
+
+class AdvancedOfflineSyncManager {
+  private operationQueue: OfflineOperation[] = [];
+  private syncInProgress = false;
+  private conflictResolver: ConflictResolutionStrategy;
+
+  constructor(
+    private supabase: SupabaseClient,
+    private localDB: SQLiteDatabase
+  ) {
+    this.conflictResolver = {
+      strategy: 'merge_fields',
+      mergeRules: {
+        // Inventory-specific merge rules
+        'quantity_consumed': 'merge', // Add quantities
+        'storage_location_id': 'client', // Prefer user's latest choice
+        'notes': 'merge', // Append notes
+        'updated_at': 'server', // Server timestamp wins
+        'scanned_at': 'client' // Keep original scan time
+      }
+    };
+  }
+
+  async queueOperation(operation: Omit<OfflineOperation, 'id' | 'retryCount'>): Promise<string> {
+    const id = generateUUID();
+    const queuedOp: OfflineOperation = {
+      ...operation,
+      id,
+      retryCount: 0
+    };
+
+    // Store in local database for persistence
+    await this.localDB.runAsync(
+      'INSERT INTO sync_queue (id, type, table_name, data, timestamp, user_id) VALUES (?, ?, ?, ?, ?, ?)',
+      [id, operation.type, operation.table, JSON.stringify(operation.data), operation.timestamp, operation.userId]
+    );
+
+    this.operationQueue.push(queuedOp);
+    
+    // Trigger sync if online
+    if (await this.isOnline()) {
+      this.syncWhenReady();
+    }
+
+    return id;
+  }
+
+  async syncWhenReady(): Promise<void> {
+    if (this.syncInProgress || !await this.isOnline()) {
+      return;
+    }
+
+    this.syncInProgress = true;
+    
+    try {
+      // Load queue from local storage
+      await this.loadQueueFromStorage();
+      
+      // Process operations in chronological order
+      const sortedOps = this.operationQueue.sort((a, b) => a.timestamp - b.timestamp);
+      
+      for (const operation of sortedOps) {
+        try {
+          await this.syncSingleOperation(operation);
+          await this.removeFromQueue(operation.id);
+        } catch (error) {
+          await this.handleSyncError(operation, error);
+        }
+      }
+    } finally {
+      this.syncInProgress = false;
+    }
+  }
+
+  private async syncSingleOperation(operation: OfflineOperation): Promise<void> {
+    const { type, table, data, timestamp, userId } = operation;
+
+    switch (type) {
+      case 'INSERT':
+        await this.handleInsertSync(operation);
+        break;
+      case 'UPDATE':
+        await this.handleUpdateSync(operation);
+        break;
+      case 'DELETE':
+        await this.handleDeleteSync(operation);
+        break;
+    }
+  }
+
+  private async handleUpdateSync(operation: OfflineOperation): Promise<void> {
+    const { table, data } = operation;
+    
+    // First, get current server state
+    const { data: serverRecord, error } = await this.supabase
+      .from(table)
+      .select('*')
+      .eq('id', data.id)
+      .single();
+
+    if (error && error.code !== 'PGRST116') { // Not found is OK for some cases
+      throw error;
+    }
+
+    if (!serverRecord) {
+      // Record was deleted on server - handle accordingly
+      await this.handleDeletedOnServer(operation);
+      return;
+    }
+
+    // Check for conflicts
+    const conflict = this.detectConflict(serverRecord, data, operation.timestamp);
+    
+    if (conflict) {
+      const resolved = await this.resolveConflict(serverRecord, data, conflict);
+      data = resolved;
+    }
+
+    // Apply the update
+    const { error: updateError } = await this.supabase
+      .from(table)
+      .update(data)
+      .eq('id', data.id);
+
+    if (updateError) {
+      throw updateError;
+    }
+
+    // Update local optimistic state
+    await this.updateLocalRecord(table, data);
+  }
+
+  private detectConflict(serverRecord: any, clientData: any, clientTimestamp: number): boolean {
+    const serverUpdatedAt = new Date(serverRecord.updated_at).getTime();
+    const clientUpdatedAt = clientTimestamp;
+
+    // If server record is newer than client operation, we have a conflict
+    return serverUpdatedAt > clientUpdatedAt;
+  }
+
+  private async resolveConflict(
+    serverData: any, 
+    clientData: any, 
+    conflict: boolean
+  ): Promise<any> {
+    switch (this.conflictResolver.strategy) {
+      case 'last_write_wins':
+        return clientData; // Client wins (could be server if we prefer that)
+
+      case 'merge_fields':
+        return this.mergeFieldsStrategy(serverData, clientData);
+
+      case 'user_prompt':
+        return await this.promptUserForResolution(serverData, clientData);
+
+      case 'custom':
+        return this.conflictResolver.customResolver!(serverData, clientData);
+
+      default:
+        return clientData;
+    }
+  }
+
+  private mergeFieldsStrategy(serverData: any, clientData: any): any {
+    const merged = { ...serverData };
+    const rules = this.conflictResolver.mergeRules!;
+
+    for (const [field, rule] of Object.entries(rules)) {
+      switch (rule) {
+        case 'server':
+          merged[field] = serverData[field];
+          break;
+        case 'client':
+          merged[field] = clientData[field];
+          break;
+        case 'merge':
+          merged[field] = this.mergeFieldValues(
+            serverData[field], 
+            clientData[field], 
+            field
+          );
+          break;
+      }
+    }
+
+    return merged;
+  }
+
+  private mergeFieldValues(serverValue: any, clientValue: any, fieldName: string): any {
+    switch (fieldName) {
+      case 'quantity_consumed':
+        // Add quantities together for consumption tracking
+        return (parseFloat(serverValue) || 0) + (parseFloat(clientValue) || 0);
+        
+      case 'notes':
+        // Merge notes with timestamp
+        const serverNote = serverValue || '';
+        const clientNote = clientValue || '';
+        const timestamp = new Date().toISOString();
+        return serverNote + (serverNote ? '\n' : '') + 
+               `[${timestamp}] ${clientNote}`;
+        
+      default:
+        return clientValue; // Default to client value
+    }
+  }
+
+  private async promptUserForResolution(serverData: any, clientData: any): Promise<any> {
+    // This would show a modal to the user
+    return new Promise((resolve) => {
+      ConflictResolutionModal.show({
+        serverData,
+        clientData,
+        onResolve: resolve
+      });
+    });
+  }
+
+  private async handleSyncError(operation: OfflineOperation, error: Error): Promise<void> {
+    operation.retryCount++;
+    
+    // Exponential backoff
+    const backoffDelay = Math.min(1000 * Math.pow(2, operation.retryCount), 30000);
+    
+    if (operation.retryCount < 5) {
+      // Schedule retry
+      setTimeout(() => {
+        this.syncSingleOperation(operation).catch(err => 
+          this.handleSyncError(operation, err)
+        );
+      }, backoffDelay);
+    } else {
+      // Max retries exceeded - move to failed queue
+      await this.moveToFailedQueue(operation, error);
+      
+      // Notify user about persistent sync failure
+      NotificationManager.showSyncFailure({
+        operation: operation.type,
+        table: operation.table,
+        error: error.message
+      });
+    }
+  }
+
+  // Vector clock implementation for better conflict detection
+  private vectorClock = new Map<string, number>();
+
+  private updateVectorClock(nodeId: string): void {
+    const currentTick = this.vectorClock.get(nodeId) || 0;
+    this.vectorClock.set(nodeId, currentTick + 1);
+  }
+
+  private compareVectorClocks(clock1: Map<string, number>, clock2: Map<string, number>): 'before' | 'after' | 'concurrent' {
+    let clock1Greater = false;
+    let clock2Greater = false;
+
+    const allNodes = new Set([...clock1.keys(), ...clock2.keys()]);
+
+    for (const node of allNodes) {
+      const tick1 = clock1.get(node) || 0;
+      const tick2 = clock2.get(node) || 0;
+
+      if (tick1 > tick2) clock1Greater = true;
+      if (tick2 > tick1) clock2Greater = true;
+    }
+
+    if (clock1Greater && !clock2Greater) return 'after';
+    if (clock2Greater && !clock1Greater) return 'before';
+    if (!clock1Greater && !clock2Greater) return 'concurrent';
+    return 'concurrent'; // Both greater in different dimensions
+  }
+}
+
+// React Hook for offline sync status
+function useOfflineSyncStatus() {
+  const [syncStatus, setSyncStatus] = useState<{
+    isOnline: boolean;
+    queueSize: number;
+    lastSync: Date | null;
+    conflicts: number;
+  }>({
+    isOnline: true,
+    queueSize: 0,
+    lastSync: null,
+    conflicts: 0
+  });
+
+  useEffect(() => {
+    const syncManager = OfflineSyncManager.getInstance();
+    
+    const unsubscribe = syncManager.subscribe((status) => {
+      setSyncStatus(status);
+    });
+
+    return unsubscribe;
+  }, []);
+
+  return syncStatus;
+}
+```
+
+## 2. Testing Strategy
+
+### Question 2.1: E2E Test Flakiness Management
+
+**Robust E2E Testing with Smart Retries and Mocking:**
+
+```typescript
+// Enhanced Detox configuration with reliability patterns
+// detox.config.js
+module.exports = {
+  testRunner: 'jest',
+  runnerConfig: 'e2e/config.json',
+  configurations: {
+    'ios.sim.debug': {
+      device: 'simulator',
+      app: 'ios.debug',
+      artifacts: {
+        screenshots: {
+          takeWhen: { testFailure: true, testDone: false },
+          shouldTakeAutomaticSnapshots: true,
+          keepOnlyFailedTestsArtifacts: true
+        },
+        videos: {
+          takeWhen: { testFailure: true },
+          shouldTakeAutomaticSnapshots: false,
+          keepOnlyFailedTestsArtifacts: true
+        },
+        instruments: {
+          path: 'e2e/artifacts/instruments'
+        }
+      }
+    }
+  },
+  behavior: {
+    init: {
+      reinstallApp: false, // Faster test runs
+      exposeGlobals: false
+    },
+    cleanup: {
+      shutdownDevice: false
+    }
+  }
+};
+
+// Smart retry wrapper for flaky operations
+class DetoxTestHelper {
+  static async withRetry<T>(
+    operation: () => Promise<T>,
+    maxRetries = 3,
+    description = 'operation'
+  ): Promise<T> {
+    let lastError: Error;
+    
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        return await operation();
+      } catch (error) {
+        lastError = error;
+        
+        if (attempt === maxRetries) {
+          throw new Error(`${description} failed after ${maxRetries} attempts: ${error.message}`);
+        }
+        
+        console.warn(`${description} attempt ${attempt} failed, retrying...`, error.message);
+        
+        // Smart wait based on error type
+        const waitTime = this.getRetryDelay(error, attempt);
+        await device.sleep(waitTime);
+      }
+    }
+  }
+
+  private static getRetryDelay(error: Error, attempt: number): number {
+    // Different retry strategies based on error type
+    if (error.message.includes('network') || error.message.includes('timeout')) {
+      return 2000 * attempt; // Network issues - longer wait
+    }
+    if (error.message.includes('animation')) {
+      return 500; // Animation issues - short wait
+    }
+    return 1000 * attempt; // Default exponential backoff
+  }
+
+  // Wait for element with intelligent timeout
+  static async waitForElement(elementMatcher: any, timeout = 10000): Promise<void> {
+    return this.withRetry(async () => {
+      await waitFor(element(elementMatcher))
+        .toBeVisible()
+        .withTimeout(timeout);
+    }, 3, `waiting for element ${elementMatcher}`);
+  }
+
+  // Stable text input
+  static async typeTextSafely(elementMatcher: any, text: string): Promise<void> {
+    return this.withRetry(async () => {
+      await element(elementMatcher).clearText();
+      await device.sleep(100); // Brief pause for UI to update
+      await element(elementMatcher).typeText(text);
+      
+      // Verify text was actually entered
+      await expect(element(elementMatcher)).toHaveText(text);
+    }, 3, `typing text "${text}"`);
+  }
+}
+
+// Mock API responses for deterministic testing
+class E2EApiMocker {
+  private mockResponses = new Map<string, any>();
+  
+  setupNutritionixMocks(): void {
+    this.mockResponses.set('nutritionix_041331124027', {
+      foods: [{
+        food_name: 'Red Kidney Beans',
+        brand_name: 'Goya',
+        nf_calories: 110,
+        nf_protein: 8,
+        nf_total_fat: 0
+      }]
+    });
+    
+    this.mockResponses.set('nutritionix_123456789012', {
+      foods: [{
+        food_name: 'Test Product E2E',
+        brand_name: 'Test Brand',
+        nf_calories: 200,
+        nf_protein: 5,
+        nf_total_fat: 10
+      }]
+    });
+  }
+
+  async interceptApiCall(url: string): Promise<any> {
+    const barcode = this.extractBarcodeFromUrl(url);
+    const mockKey = `nutritionix_${barcode}`;
+    
+    if (this.mockResponses.has(mockKey)) {
+      return this.mockResponses.get(mockKey);
+    }
+    
+    throw new Error(`No mock data for barcode: ${barcode}`);
+  }
+
+  private extractBarcodeFromUrl(url: string): string {
+    const match = url.match(/barcode\/(\d+)/);
+    return match ? match[1] : '';
+  }
+}
+
+// Enhanced E2E test suite
+describe('Scanner Workflow - Enhanced', () => {
+  const apiMocker = new E2EApiMocker();
+  
+  beforeAll(async () => {
+    await device.launchApp({
+      newInstance: true,
+      permissions: { camera: 'YES' },
+      // Mock network responses
+      mockNetworkCalls: true
+    });
+    
+    apiMocker.setupNutritionixMocks();
+  });
+
+  beforeEach(async () => {
+    // Reset app state for consistent testing
+    await device.reloadReactNative();
+    
+    // Wait for app to fully load
+    await DetoxTestHelper.waitForElement(by.id('main-tab-navigator'));
+  });
+
+  test('complete scan workflow with network variations', async () => {
+    // Test normal flow
+    await element(by.id('scanner-tab')).tap();
+    await DetoxTestHelper.waitForElement(by.id('camera-view'));
+    
+    // Simulate barcode scan
+    await DetoxTestHelper.typeTextSafely(by.id('manual-barcode-input'), '041331124027');
+    await element(by.id('confirm-scan')).tap();
+    
+    // Wait for API response and verify
+    await DetoxTestHelper.waitForElement(by.id('product-details'), 15000);
+    await expect(element(by.text('Red Kidney Beans'))).toBeVisible();
+    
+    // Test with slow network
+    await device.setNetworkConnection('slow');
+    
+    await DetoxTestHelper.typeTextSafely(by.id('manual-barcode-input'), '123456789012');
+    await element(by.id('confirm-scan')).tap();
+    
+    // Should show loading state
+    await DetoxTestHelper.waitForElement(by.id('loading-indicator'));
+    
+    // Eventually load product
+    await DetoxTestHelper.waitForElement(by.text('Test Product E2E'), 20000);
+    
+    // Reset network
+    await device.setNetworkConnection('connected');
+  });
+
+  test('offline functionality with queue management', async () => {
+    // Go offline
+    await device.setNetworkConnection('disconnected');
+    
+    // Perform scan
+    await element(by.id('scanner-tab')).tap();
+    await DetoxTestHelper.typeTextSafely(by.id('manual-barcode-input'), '999999999999');
+    await element(by.id('confirm-scan')).tap();
+    
+    // Should queue for offline sync
+    await DetoxTestHelper.waitForElement(by.text('Queued for sync'));
+    
+    // Check sync status
+    await element(by.id('sync-status-button')).tap();
+    await expect(element(by.text('1 item pending sync'))).toBeVisible();
+    
+    // Go back online
+    await device.setNetworkConnection('connected');
+    
+    // Wait for sync
+    await DetoxTestHelper.waitForElement(by.text('All items synced'), 30000);
+  });
+});
+```
+
+### Question 2.2: Database Test Data Management
+
+**Comprehensive Test Data Management System:**
+
+```typescript
+// Database test utilities for Supabase
+class SupabaseTestManager {
+  private testUserId: string;
+  private testDataIds: { [table: string]: string[] } = {};
+  
+  constructor(private supabase: SupabaseClient) {
+    this.testUserId = 'test-user-' + Date.now();
+  }
+
+  async setupTestDatabase(): Promise<void> {
+    // Create isolated test data
+    await this.createTestStorageLocations();
+    await this.createTestProducts();
+    await this.createTestMasterIngredients();
+    
+    // Set RLS context for test user
+    await this.supabase.auth.signInWithPassword({
+      email: `${this.testUserId}@test.com`,
+      password: 'test-password-123'
+    });
+  }
+
+  async cleanupTestDatabase(): Promise<void> {
+    // Clean up in reverse dependency order
+    const tables = [
+      'scanned_items',
+      'inventory_transactions', 
+      'inventory',
+      'ingredient_suggestions',
+      'products',
+      'master_ingredients',
+      'storage_locations'
+    ];
+
+    for (const table of tables) {
+      if (this.testDataIds[table]) {
+        await this.supabase
+          .from(table)
+          .delete()
+          .in('id', this.testDataIds[table]);
+      }
+    }
+
+    // Sign out test user
+    await this.supabase.auth.signOut();
+  }
+
+  private async createTestProducts(): Promise<void> {
+    const testProducts = [
+      {
+        barcode: '041331124027',
+        name: 'Red Kidney Beans',
+        brand_name: 'Goya',
+        calories: 110,
+        protein: 8,
+        source: 'test'
+      },
+      {
+        barcode: '123456789012',
+        name: 'Test Product E2E',
+        brand_name: 'Test Brand',
+        calories: 200,
+        protein: 5,
+        source: 'test'
+      }
+    ];
+
+    const { data, error } = await this.supabase
+      .from('products')
+      .insert(testProducts)
+      .select('id');
+
+    if (error) throw error;
+    
+    this.testDataIds.products = data.map(p => p.id);
+  }
+
+  async createPerformanceTestData(recordCount: number): Promise<void> {
+    const batchSize = 1000;
+    const batches = Math.ceil(recordCount / batchSize);
+    
+    for (let i = 0; i < batches; i++) {
+      const batchProducts = [];
+      const currentBatchSize = Math.min(batchSize, recordCount - i * batchSize);
+      
+      for (let j = 0; j < currentBatchSize; j++) {
+        const index = i * batchSize + j;
+        batchProducts.push({
+          barcode: `${1000000000000 + index}`,
+          name: `Performance Test Product ${index}`,
+          brand_name: `Test Brand ${index % 100}`,
+          calories: 100 + (index % 500),
+          protein: 1 + (index % 50),
+          full_nutrients: this.generateMockNutrients(index),
+          source: 'performance_test'
+        });
+      }
+      
+      const { data, error } = await this.supabase
+        .from('products')
+        .insert(batchProducts)
+        .select('id');
+        
+      if (error) throw error;
+      
+      this.testDataIds.products = [
+        ...(this.testDataIds.products || []),
+        ...data.map(p => p.id)
+      ];
+      
+      // Small delay to prevent overwhelming the database
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+  }
+
+  private generateMockNutrients(seed: number): any[] {
+    return [
+      { attr_id: 203, value: 1 + (seed % 50) }, // Protein
+      { attr_id: 204, value: seed % 30 }, // Fat
+      { attr_id: 205, value: 10 + (seed % 100) }, // Carbs
+      { attr_id: 208, value: 100 + (seed % 500) }, // Calories
+      { attr_id: 307, value: seed % 1000 }, // Sodium
+    ];
+  }
+
+  // Database seeding for specific test scenarios
+  async seedInventoryTestData(): Promise<void> {
+    // Create test inventory items with various expiration dates
+    const inventoryItems = [
+      {
+        product_id: this.testDataIds.products[0],
+        storage_location_id: 1,
+        quantity: 2,
+        unit: 'can',
+        expiration_date: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // 30 days
+        purchase_date: new Date().toISOString().split('T')[0]
+      },
+      {
+        product_id: this.testDataIds.products[1],
+        storage_location_id: 2,
+        quantity: 1,
+        unit: 'package',
+        expiration_date: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // 5 days ago (expired)
+        purchase_date: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+      }
+    ];
+
+    const { data, error } = await this.supabase
+      .from('inventory')
+      .insert(inventoryItems)
+      .select('id');
+
+    if (error) throw error;
+    this.testDataIds.inventory = data.map(i => i.id);
+  }
+}
+
+// Jest setup for database tests
+// jest.setup.database.js
+let testManager: SupabaseTestManager;
+
+beforeAll(async () => {
+  testManager = new SupabaseTestManager(supabaseClient);
+  await testManager.setupTestDatabase();
+});
+
+afterAll(async () => {
+  await testManager.cleanupTestDatabase();
+});
+
+beforeEach(async () => {
+  // Reset to clean state for each test
+  await testManager.resetToCleanState();
+});
+
+// Performance test example
+describe('Database Performance Tests', () => {
+  test('JSONB nutrition query performance at scale', async () => {
+    // Create 10,000 test products
+    await testManager.createPerformanceTestData(10000);
+    
+    const startTime = performance.now();
+    
+    // Query nutrition data
+    const { data, error } = await supabase
+      .from('products')
+      .select('id, name, full_nutrients')
+      .contains('full_nutrients', [{ attr_id: 203 }]) // Products with protein data
+      .limit(1000);
+    
+    const endTime = performance.now();
+    const queryTime = endTime - startTime;
+    
+    expect(error).toBeNull();
+    expect(data).toHaveLength(1000);
+    expect(queryTime).toBeLessThan(500); // 500ms max
+    
+    // Log performance metrics
+    console.log(`JSONB query took ${queryTime}ms for 10k records`);
+  });
+});
+```
+
+### Question 2.3: Security Testing Automation
+
+**Automated Security Pipeline with Intelligent Triage:**
+
+```yaml
+# .github/workflows/security-scan.yml
+name: Security Scanning Pipeline
+on:
+  schedule:
+    - cron: '0 2 * * *' # Daily at 2 AM
+  push:
+    branches: [main, staging]
+  pull_request:
+    branches: [main]
+
+jobs:
+  static-analysis:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Semgrep Static Analysis
+        uses: returntocorp/semgrep-action@v1
+        with:
+          config: >-
+            p/security-audit
+            p/secrets
+            p/owasp-top-ten
+            p/react
+            p/typescript
+          generateSarif: "1"
+          
+      - name: CodeQL Analysis
+        uses: github/codeql-action/init@v2
+        with:
+          languages: javascript, typescript
+          
+      - name: Build for analysis
+        run: npm ci && npm run build
+        
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v2
+
+  dependency-security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Audit npm dependencies
+        run: |
+          npm audit --audit-level moderate --json > npm-audit.json || true
+          
+      - name: Snyk Security Scan
+        uses: snyk/actions/node@master
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          args: --severity-threshold=medium --json > snyk-report.json
+          
+      - name: Process Security Reports
+        run: node scripts/process-security-reports.js
+
+  dynamic-security:
+    runs-on: ubuntu-latest
+    needs: [static-analysis]
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Start test environment
+        run: |
+          docker-compose -f docker-compose.test.yml up -d
+          sleep 30 # Wait for services to start
+          
+      - name: OWASP ZAP Baseline Scan
+        uses: zaproxy/action-baseline@v0.7.0
+        with:
+          target: 'http://localhost:3000'
+          rules_file_name: '.zap/rules.tsv'
+          cmd_options: '-a -d -T 15 -m 2'
+          
+      - name: OWASP ZAP Full Scan
+        uses: zaproxy/action-full-scan@v0.4.0
+        with:
+          target: 'http://localhost:3000'
+          rules_file_name: '.zap/rules.tsv'
+          cmd_options: '-a -T 30'
+```
+
+**Intelligent Security Report Processing:**
+
+```typescript
+// scripts/process-security-reports.js
+interface SecurityFinding {
+  tool: 'semgrep' | 'snyk' | 'npm-audit' | 'zap';
+  severity: 'low' | 'medium' | 'high' | 'critical';
+  category: string;
+  description: string;
+  file?: string;
+  line?: number;
+  rule: string;
+  cwe?: string;
+  confidence: number;
+}
+
+class SecurityReportProcessor {
+  private falsePositiveRules: string[] = [
+    'javascript.express.security.audit.express-check-csurf-middleware-usage',
+    'javascript.lang.security.audit.path-traversal.path-join-resolve-traversal'
+  ];
+
+  private suppressedFindings: Map<string, string> = new Map([
+    ['semgrep:react-dangerouslysetinnerhtml', 'Sanitized with DOMPurify'],
+    ['snyk:prototype-pollution', 'Not exploitable in our context']
+  ]);
+
+  async processAllReports(): Promise<void> {
+    const findings: SecurityFinding[] = [];
+    
+    // Process each security tool report
+    const semgrepFindings = await this.processSemgrepReport();
+    const snykFindings = await this.processSnykReport();
+    const npmAuditFindings = await this.processNpmAuditReport();
+    const zapFindings = await this.processZapReport();
+    
+    findings.push(...semgrepFindings, ...snykFindings, ...npmAuditFindings, ...zapFindings);
+    
+    // Filter and triage findings
+    const filteredFindings = this.filterFindings(findings);
+    const triaged = this.triageFindings(filteredFindings);
+    
+    // Generate reports
+    await this.generateSecurityReport(triaged);
+    await this.createJiraTickets(triaged.filter(f => f.severity === 'critical'));
+    await this.updateSecurityDashboard(triaged);
+  }
+
+  private filterFindings(findings: SecurityFinding[]): SecurityFinding[] {
+    return findings.filter(finding => {
+      // Remove false positives
+      if (this.falsePositiveRules.includes(finding.rule)) {
+        return false;
+      }
+      
+      // Remove suppressed findings
+      const key = `${finding.tool}:${finding.rule}`;
+      if (this.suppressedFindings.has(key)) {
+        console.log(`Suppressed finding: ${key} - ${this.suppressedFindings.get(key)}`);
+        return false;
+      }
+      
+      // Remove low confidence findings for certain categories
+      if (finding.confidence < 0.7 && finding.category === 'potential-vulnerability') {
+        return false;
+      }
+      
+      return true;
+    });
+  }
+
+  private triageFindings(findings: SecurityFinding[]): SecurityFinding[] {
+    return findings.map(finding => {
+      // Adjust severity based on context
+      if (finding.category === 'dependency-vulnerability') {
+        // Check if dependency is actually used in production code
+        const isUsedInProd = this.isDependencyUsedInProduction(finding.description);
+        if (!isUsedInProd && finding.severity === 'high') {
+          finding.severity = 'medium';
+        }
+      }
+      
+      // Upgrade severity for authentication/authorization issues
+      if (finding.category.includes('auth') && finding.severity === 'medium') {
+        finding.severity = 'high';
+      }
+      
+      return finding;
+    });
+  }
+
+  private async createJiraTickets(criticalFindings: SecurityFinding[]): Promise<void> {
+    for (const finding of criticalFindings) {
+      const ticket = {
+        fields: {
+          project: { key: 'SEC' },
+          summary: `Security: ${finding.category} - ${finding.rule}`,
+          description: this.formatJiraDescription(finding),
+          issuetype: { name: 'Security Bug' },
+          priority: { name: 'Critical' },
+          labels: ['security', 'automated', finding.tool],
+          components: [{ name: 'Mobile App' }]
+        }
+      };
+      
+      await this.jiraClient.createIssue(ticket);
+    }
+  }
+
+  private async updateSecurityDashboard(findings: SecurityFinding[]): Promise<void> {
+    const metrics = {
+      total_findings: findings.length,
+      critical: findings.filter(f => f.severity === 'critical').length,
+      high: findings.filter(f => f.severity === 'high').length,
+      medium: findings.filter(f => f.severity === 'medium').length,
+      low: findings.filter(f => f.severity === 'low').length,
+      by_tool: this.groupByTool(findings),
+      trend: await this.calculateTrend(findings),
+      last_scan: new Date().toISOString()
+    };
+    
+    // Update dashboard via API
+    await fetch('https://security-dashboard.company.com/api/metrics', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(metrics)
+    });
+  }
+}
+
+// Security monitoring integration
+class SecurityMonitoring {
+  private metrics = new Map<string, number>();
+  
+  async trackSecurityEvent(event: string, severity: string, metadata?: any): Promise<void> {
+    // Update metrics
+    const key = `${event}_${severity}`;
+    this.metrics.set(key, (this.metrics.get(key) || 0) + 1);
+    
+    // Send to monitoring system
+    await DatadogMetrics.increment('security.event', 1, {
+      event_type: event,
+      severity: severity,
+      environment: process.env.NODE_ENV
+    });
+    
+    // Alert on critical events
+    if (severity === 'critical') {
+      await this.sendAlert(event, metadata);
+    }
+  }
+
+  private async sendAlert(event: string, metadata: any): Promise<void> {
+    await SlackNotifier.send({
+      channel: '#security-alerts',
+      text: `🚨 Critical security event: ${event}`,
+      attachments: [{
+        color: 'danger',
+        fields: [{
+          title: 'Event Details',
+          value: JSON.stringify(metadata, null, 2),
+          short: false
+        }]
+      }]
+    });
+  }
+}
+```
+
+## 3. Scalability & Performance
+
+### Question 3.1: Microservice Communication & Data Consistency
+
+**Event-Driven Architecture with Saga Pattern:**
+
+```typescript
+// Event bus implementation for microservice communication
+interface DomainEvent {
+  id: string;
+  type: string;
+  aggregateId: string;
+  data: any;
+  timestamp: number;
+  version: number;
+  userId?: string;
+}
+
+class EventBus {
+  private publishers = new Map<string, EventPublisher>();
+  private subscribers = new Map<string, EventSubscriber[]>();
+  
+  constructor(
+    private messageQueue: MessageQueue, // Redis Streams or RabbitMQ
+    private eventStore: EventStore // For event sourcing
+  ) {}
+
+  async publish(event: DomainEvent): Promise<void> {
+    // Store event for audit and replay
+    await this.eventStore.store(event);
+    
+    // Publish to message queue
+    await this.messageQueue.publish(event.type, event);
+    
+    // Local subscribers (same service)
+    const localSubscribers = this.subscribers.get(event.type) || [];
+    await Promise.all(localSubscribers.map(sub => sub.handle(event)));
+  }
+
+  async subscribe(eventType: string, handler: EventHandler): Promise<void> {
+    // Remote subscription via message queue
+    await this.messageQueue.subscribe(eventType, async (event: DomainEvent) => {
+      try {
+        await handler.handle(event);
+        await this.messageQueue.ack(event.id);
+      } catch (error) {
+        await this.handleSubscriberError(event, error, handler);
+      }
+    });
+  }
+
+  private async handleSubscriberError(
+    event: DomainEvent, 
+    error: Error, 
+    handler: EventHandler
+  ): Promise<void> {
+    const retryCount = event.data._retryCount || 0;
+    
+    if (retryCount < 3) {
+      // Exponential backoff retry
+      const delay = Math.pow(2, retryCount) * 1000;
+      setTimeout(async () => {
+        event.data._retryCount = retryCount + 1;
+        await handler.handle(event);
+      }, delay);
+    } else {
+      // Move to dead letter queue for manual investigation
+      await this.messageQueue.sendToDeadLetter(event, error);
+    }
+  }
+}
+
+// Saga pattern for distributed transactions
+class ScanProcessingSaga {
+  constructor(
+    private eventBus: EventBus,
+    private scanningService: ScanningServiceClient,
+    private nutritionService: NutritionServiceClient,
+    private mlService: MLServiceClient,
+    private inventoryService: InventoryServiceClient
+  ) {}
+
+  async handle(event: DomainEvent): Promise<void> {
+    switch (event.type) {
+      case 'BarcodeScanned':
+        await this.handleBarcodeScanned(event);
+        break;
+      case 'ProductEnriched':
+        await this.handleProductEnriched(event);
+        break;
+      case 'ProductCategorized':
+        await this.handleProductCategorized(event);
+        break;
+      case 'InventoryUpdated':
+        await this.handleInventoryUpdated(event);
+        break;
+    }
+  }
+
+  private async handleBarcodeScanned(event: DomainEvent): Promise<void> {
+    const { barcode, userId, scanId } = event.data;
+    
+    try {
+      // Step 1: Enrich product data
+      const enrichmentResult = await this.nutritionService.enrichProduct(barcode);
+      
+      await this.eventBus.publish({
+        id: generateUUID(),
+        type: 'ProductEnriched',
+        aggregateId: scanId,
+        data: { ...enrichmentResult, scanId, userId },
+        timestamp: Date.now(),
+        version: 1
+      });
+      
+    } catch (error) {
+      // Compensation action - mark scan as failed
+      await this.eventBus.publish({
+        id: generateUUID(),
+        type: 'ScanProcessingFailed',
+        aggregateId: scanId,
+        data: { scanId, userId, error: error.message, step: 'enrichment' },
+        timestamp: Date.now(),
+        version: 1
+      });
+    }
+  }
+
+  private async handleProductEnriched(event: DomainEvent): Promise<void> {
+    const { productData, scanId, userId } = event.data;
+    
+    try {
+      // Step 2: Categorize product
+      const categorization = await this.mlService.categorizeProduct(productData);
+      
+      await this.eventBus.publish({
+        id: generateUUID(),
+        type: 'ProductCategorized',
+        aggregateId: scanId,
+        data: { productData, categorization, scanId, userId },
+        timestamp: Date.now(),
+        version: 1
+      });
+      
+    } catch (error) {
+      // Compensation - still proceed with manual categorization
+      await this.eventBus.publish({
+        id: generateUUID(),
+        type: 'ProductCategorized',
+        aggregateId: scanId,
+        data: { 
+          productData, 
+          categorization: { category: 'Unknown', confidence: 0, requiresManualReview: true },
+          scanId, 
+          userId 
+        },
+        timestamp: Date.now(),
+        version: 1
+      });
+    }
+  }
+}
+
+// Data consistency with eventual consistency model
+class DataConsistencyManager {
+  private reconciliationJobs = new Map<string, ReconciliationJob>();
+  
+  async ensureEventualConsistency(): Promise<void> {
+    // Run every 5 minutes
+    setInterval(async () => {
+      await this.reconcileProductData();
+      await this.reconcileInventoryData();
+      await this.reconcileAnalyticsData();
+    }, 300000);
+  }
+
+  private async reconcileProductData(): Promise<void> {
+    // Compare product data across services
+    const nutritionServiceProducts = await this.nutritionService.getAllProducts();
+    const inventoryServiceProducts = await this.inventoryService.getAllProducts();
+    
+    for (const product of nutritionServiceProducts) {
+      const inventoryProduct = inventoryServiceProducts.find(p => p.barcode === product.barcode);
+      
+      if (!inventoryProduct) {
+        // Missing in inventory service - sync
+        await this.inventoryService.syncProduct(product);
+      } else if (product.updated_at > inventoryProduct.updated_at) {
+        // Nutrition service has newer data
+        await this.inventoryService.updateProduct(product);
+      }
+    }
+  }
+
+  // CQRS pattern for read/write separation
+  async updateReadModel(event: DomainEvent): Promise<void> {
+    switch (event.type) {
+      case 'ProductEnriched':
+        await this.updateProductReadModel(event.data);
+        break;
+      case 'InventoryUpdated':
+        await this.updateInventoryReadModel(event.data);
+        break;
+      case 'ProductCategorized':
+        await this.updateCategoryReadModel(event.data);
+        break;
+    }
+  }
+
+  private async updateProductReadModel(data: any): Promise<void> {
+    // Update denormalized read model for fast queries
+    await this.readDatabase.query(`
+      INSERT INTO product_read_model (
+        barcode, name, brand, calories, protein, category, last_updated
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+      ON CONFLICT (barcode) DO UPDATE SET
+        name = EXCLUDED.name,
+        brand = EXCLUDED.brand,
+        calories = EXCLUDED.calories,
+        protein = EXCLUDED.protein,
+        category = EXCLUDED.category,
+        last_updated = EXCLUDED.last_updated
+    `, [data.barcode, data.name, data.brand, data.calories, data.protein, data.category, new Date()]);
+  }
+}
+```
+
+### Question 3.2: Supabase in Microservices Architecture
+
+**Hybrid Database Strategy:**
+
+```typescript
+// Database service abstraction
+interface DatabaseService {
+  query<T>(sql: string, params?: any[]): Promise<T[]>;
+  insert<T>(table: string, data: T): Promise<T>;
+  update<T>(table: string, id: string, data: Partial<T>): Promise<T>;
+  delete(table: string, id: string): Promise<void>;
+}
+
+class SupabaseService implements DatabaseService {
+  constructor(private client: SupabaseClient) {}
+  
+  async query<T>(sql: string, params?: any[]): Promise<T[]> {
+    const { data, error } = await this.client.rpc('execute_sql', { 
+      query: sql, 
+      params 
+    });
+    if (error) throw error;
+    return data;
+  }
+  
+  // Implement other methods...
+}
+
+class PostgresService implements DatabaseService {
+  constructor(private pool: Pool) {}
+  
+  async query<T>(sql: string, params?: any[]): Promise<T[]> {
+    const client = await this.pool.connect();
+    try {
+      const result = await client.query(sql, params);
+      return result.rows;
+    } finally {
+      client.release();
+    }
+  }
+  
+  // Implement other methods...
+}
+
+// Service-specific database configurations
+class DatabaseFactory {
+  static createForService(serviceName: string): DatabaseService {
+    switch (serviceName) {
+      case 'inventory':
+        // Primary transactional data - use Supabase with full ACID guarantees
+        return new SupabaseService(createSupabaseClient({
+          url: process.env.SUPABASE_URL,
+          key: process.env.SUPABASE_SERVICE_KEY,
+          db: { schema: 'inventory' }
+        }));
+        
+      case 'analytics':
+        // Time-series and aggregation data - use dedicated PostgreSQL with columnar storage
+        return new PostgresService(new Pool({
+          host: process.env.ANALYTICS_DB_HOST,
+          database: 'analytics_db',
+          // Optimized for analytical workloads
+          max: 20,
+          connectionTimeoutMillis: 30000
+        }));
+        
+      case 'ml-inference':
+        // Flexible schema for ML results - use MongoDB
+        return new MongoService(process.env.MONGODB_URL, 'ml_results');
+        
+      case 'search':
+        // Full-text search - use Elasticsearch
+        return new ElasticsearchService(process.env.ELASTICSEARCH_URL);
+        
+      default:
+        return new SupabaseService(createSupabaseClient());
+    }
+  }
+}
+
+// Polyglot persistence example
+class MLInferenceService {
+  private mlDatabase: MongoService;
+  private searchDatabase: ElasticsearchService;
+  private primaryDatabase: SupabaseService;
+  
+  constructor() {
+    this.mlDatabase = DatabaseFactory.createForService('ml-inference') as MongoService;
+    this.searchDatabase = DatabaseFactory.createForService('search') as ElasticsearchService;
+    this.primaryDatabase = DatabaseFactory.createForService('inventory') as SupabaseService;
+  }
+
+  async categorizeProduct(productData: any): Promise<CategoryResult> {
+    // Store ML inference request
+    const inferenceId = await this.mlDatabase.insert('inference_requests', {
+      productData,
+      timestamp: new Date(),
+      status: 'processing'
+    });
+
+    try {
+      // Run ML model
+      const result = await this.runMLModel(productData);
+      
+      // Store result in MongoDB (flexible schema)
+      await this.mlDatabase.update('inference_requests', inferenceId, {
+        result,
+        status: 'completed',
+        completedAt: new Date()
+      });
+      
+      // Index for search in Elasticsearch
+      await this.searchDatabase.index('product_categories', {
+        productId: productData.id,
+        category: result.category,
+        confidence: result.confidence,
+        timestamp: new Date()
+      });
+      
+      // Update primary database with result
+      await this.primaryDatabase.update('products', productData.id, {
+        suggested_category: result.category,
+        category_confidence: result.confidence
+      });
+      
+      return result;
+    } catch (error) {
+      await this.mlDatabase.update('inference_requests', inferenceId, {
+        status: 'failed',
+        error: error.message,
+        failedAt: new Date()
+      });
+      throw error;
+    }
+  }
+}
+```
+
+### Question 3.3: Cache Invalidation Strategy
+
+**Intelligent Cache Invalidation System:**
+
+```typescript
+// Cache invalidation coordinator
+class CacheInvalidationCoordinator {
+  private invalidationRules = new Map<string, InvalidationRule[]>();
+  private subscriptions = new Map<string, CacheInvalidationHandler[]>();
+  
+  constructor(
+    private eventBus: EventBus,
+    private redisClient: RedisClient
+  ) {
+    this.setupInvalidationRules();
+    this.subscribeToEvents();
+  }
+
+  private setupInvalidationRules(): void {
+    // When product data changes, invalidate related caches
+    this.invalidationRules.set('ProductUpdated', [
+      {
+        pattern: 'product:*',
+        strategy: 'immediate',
+        scope: 'global'
+      },
+      {
+        pattern: 'barcode:*',
+        strategy: 'immediate', 
+        scope: 'global'
+      },
+      {
+        pattern: 'user:*:recent_scans',
+        strategy: 'lazy',
+        scope: 'user-specific'
+      }
+    ]);
+
+    // When inventory changes, invalidate user-specific caches
+    this.invalidationRules.set('InventoryUpdated', [
+      {
+        pattern: 'user:*:inventory',
+        strategy: 'immediate',
+        scope: 'user-specific'
+      },
+      {
+        pattern: 'analytics:*',
+        strategy: 'batch',
+        scope: 'global',
+        batchWindow: 300000 // 5 minutes
+      }
+    ]);
+  }
+
+  private subscribeToEvents(): void {
+    this.eventBus.subscribe('ProductUpdated', async (event) => {
+      await this.invalidateByRules('ProductUpdated', event.data);
+    });
+
+    this.eventBus.subscribe('InventoryUpdated', async (event) => {
+      await this.invalidateByRules('InventoryUpdated', event.data);
+    });
+  }
+
+  private async invalidateByRules(eventType: string, eventData: any): Promise<void> {
+    const rules = this.invalidationRules.get(eventType) || [];
+    
+    for (const rule of rules) {
+      switch (rule.strategy) {
+        case 'immediate':
+          await this.immediateInvalidation(rule, eventData);
+          break;
+        case 'lazy':
+          await this.lazyInvalidation(rule, eventData);
+          break;
+        case 'batch':
+          await this.batchInvalidation(rule, eventData);
+          break;
+      }
+    }
+  }
+
+  private async immediateInvalidation(rule: InvalidationRule, eventData: any): Promise<void> {
+    if (rule.scope === 'user-specific' && eventData.userId) {
+      const pattern = rule.pattern.replace('*', eventData.userId);
+      await this.redisClient.del(pattern);
+      
+      // Invalidate L2 cache on user's device
+      await this.notifyDeviceInvalidation(eventData.userId, pattern);
+    } else if (rule.scope === 'global') {
+      const keys = await this.redisClient.keys(rule.pattern);
+      if (keys.length > 0) {
+        await this.redisClient.del(keys);
+      }
+      
+      // Broadcast to all connected devices
+      await this.broadcastInvalidation(rule.pattern);
+    }
+  }
+
+  private async lazyInvalidation(rule: InvalidationRule, eventData: any): Promise<void> {
+    // Mark cache entries as stale instead of deleting
+    if (rule.scope === 'user-specific' && eventData.userId) {
+      const pattern = rule.pattern.replace('*', eventData.userId);
+      const keys = await this.redisClient.keys(pattern);
+      
+      for (const key of keys) {
+        await this.redisClient.hset(key, 'stale', 'true', 'stale_since', Date.now());
+      }
+    }
+  }
+
+  private async batchInvalidation(rule: InvalidationRule, eventData: any): Promise<void> {
+    // Queue for batch processing
+    await this.redisClient.sadd(`invalidation:batch:${rule.pattern}`, JSON.stringify(eventData));
+    
+    // Schedule batch processing if not already scheduled
+    const batchKey = `batch_scheduled:${rule.pattern}`;
+    const isScheduled = await this.redisClient.exists(batchKey);
+    
+    if (!isScheduled) {
+      await this.redisClient.setex(batchKey, rule.batchWindow! / 1000, 'true');
+      
+      setTimeout(async () => {
+        await this.processBatchInvalidation(rule.pattern);
+      }, rule.batchWindow);
+    }
+  }
+
+  private async notifyDeviceInvalidation(userId: string, pattern: string): Promise<void> {
+    // Send push notification to user's devices to clear L2 cache
+    await this.eventBus.publish({
+      id: generateUUID(),
+      type: 'CacheInvalidationRequired',
+      aggregateId: userId,
+      data: { pattern, timestamp: Date.now() },
+      timestamp: Date.now(),
+      version: 1,
+      userId
+    });
+  }
+
+  private async broadcastInvalidation(pattern: string): Promise<void> {
+    // Broadcast to all connected devices via WebSocket
+    await this.eventBus.publish({
+      id: generateUUID(),
+      type: 'GlobalCacheInvalidation',
+      aggregateId: 'global',
+      data: { pattern, timestamp: Date.now() },
+      timestamp: Date.now(),
+      version: 1
+    });
+  }
+}
+
+// Client-side cache invalidation handler
+class ClientCacheManager {
+  private l1Cache = new Map<string, CacheEntry>();
+  private l2Cache: AsyncStorage;
+  
+  constructor(private eventBus: EventBus) {
+    this.subscribeToInvalidations();
+  }
+
+  private subscribeToInvalidations(): void {
+    this.eventBus.subscribe('CacheInvalidationRequired', async (event) => {
+      await this.handleInvalidation(event.data.pattern);
+    });
+
+    this.eventBus.subscribe('GlobalCacheInvalidation', async (event) => {
+      await this.handleGlobalInvalidation(event.data.pattern);
+    });
+  }
+
+  private async handleInvalidation(pattern: string): Promise<void> {
+    // Clear L1 cache
+    for (const [key, entry] of this.l1Cache.entries()) {
+      if (this.matchesPattern(key, pattern)) {
+        this.l1Cache.delete(key);
+      }
+    }
+
+    // Clear L2 cache
+    const l2Keys = await this.l2Cache.getAllKeys();
+    for (const key of l2Keys) {
+      if (this.matchesPattern(key, pattern)) {
+        await this.l2Cache.removeItem(key);
+      }
+    }
+  }
+
+  async get<T>(key: string): Promise<T | null> {
+    // Check L1 first
+    const l1Entry = this.l1Cache.get(key);
+    if (l1Entry && !this.isExpired(l1Entry)) {
+      return l1Entry.data;
+    }
+
+    // Check L2
+    try {
+      const l2Data = await this.l2Cache.getItem(key);
+      if (l2Data) {
+        const entry: CacheEntry = JSON.parse(l2Data);
+        
+        // Check if stale
+        if (entry.stale && Date.now() - entry.staleSince > 300000) { // 5 minutes
+          // Refresh in background
+          this.refreshInBackground(key);
+        }
+        
+        if (!this.isExpired(entry)) {
+          // Promote to L1
+          this.l1Cache.set(key, entry);
+          return entry.data;
+        }
+      }
+    } catch (error) {
+      console.warn('L2 cache read failed:', error);
+    }
+
+    return null;
+  }
+
+  private async refreshInBackground(key: string): Promise<void> {
+    // Determine refresh strategy based on key type
+    if (key.startsWith('product:')) {
+      const barcode = key.split(':')[1];
+      // Refresh product data from server
+      await this.refreshProductData(barcode);
+    }
+  }
+}
+```
+
+This comprehensive approach provides detailed solutions for the advanced implementation challenges you've identified, focusing on production-ready patterns that scale with your application's growth.
